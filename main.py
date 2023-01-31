@@ -32,9 +32,9 @@ if __name__ == '__main__':
         level = logging.DEBUG
     if config['DEFAULT'].getboolean('log_to_file'):
         logging.basicConfig(level=level, filename=config['DEFAULT']['logfile'],
-                            filemode='w', format='%(name)s - %(levelname)s - %(message)s')
+                            filemode='w', format='%(threadName)s - %(levelname)s - %(message)s')
     else:
-        logging.basicConfig(level=level, format='%(name)s - %(levelname)s - %(message)s')
+        logging.basicConfig(level=level, format='%(threadName)s- %(levelname)s - %(message)s')
 
     # Begin process
     if args.server:

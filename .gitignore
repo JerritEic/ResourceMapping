@@ -296,3 +296,10 @@ pyvenv.cfg
 pip-selfcheck.json
 
 # End of https://www.toptal.com/developers/gitignore/api/python,venv,pycharm
+
+# Application Specific Stuff
+cached_uuid.txt
+server_cached_uuid.txt
+*.db
+!src/resources/db_template.db
+

@@ -1,8 +1,12 @@
 import datetime
+import threading
 
 
-class Metric:
-    timestamp = -1
+class MetricCollector(threading.Thread):
+    components = None
 
-    def serialize(self):
+    def __init__(self):
+        super().__init__()
+
+    def run(self):
         pass
