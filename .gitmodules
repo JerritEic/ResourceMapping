@@ -1,3 +1,0 @@
-[submodule "src/third_party/timed_count"]
-	path = src/third_party/timed_count
-	url = https://github.com/morefigs/timed-count.git
