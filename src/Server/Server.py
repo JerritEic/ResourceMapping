@@ -1,6 +1,8 @@
 # import src.PerformanceReport.PerformanceReport
 from queue import Queue
 import traceback
+
+from src.PerformanceReport.HardwareMetrics import HardwareMetrics
 from src.Utility.NetworkUtilities import *
 from src.NetworkGraph.NetworkGraph import NetworkGraph, NetworkNodeType
 from src.NetProtocol.ConnectionHandler import ConnectionHandler, ConnectionMonitor
@@ -18,7 +20,8 @@ class Server(Node):
         super().__init__()
         self.port = int(server_config['DEFAULT']['port'])
         self.uuid = cached_or_new_uuid(use_cached=True, cache_file="./server_cached_uuid.txt")
-        self.net_graph = NetworkGraph("server", (self.ip, self.port), NetworkNodeType.CLOUD, self.uuid)
+        self.net_graph = NetworkGraph("server", (self.ip, self.port),
+                                      NetworkNodeType.CLOUD, self.uuid, self.hardware_stats)
         self.net_graph.set_server((self.ip, self.port), self.uuid)
         self.connection_monitor = ConnectionMonitor(self.termination_event, self.sel, self.receive_queue)
         self.message_handler = MessageHandler(self.receive_queue, self.termination_event, owner=self)

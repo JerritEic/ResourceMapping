@@ -16,23 +16,23 @@ class NetworkGraph:
     _connections = dict()    # UUID -> Connection Objects
     _edges = dict()          # UUID _nodes -> UUID _connections
 
-    def __init__(self, name, own_addr, own_type, own_uuid):
+    def __init__(self, name, own_addr, own_type, own_uuid, hardware):
         self._own_addr = own_addr
         self._own_uuid = own_uuid
-        self.new_node(name, own_addr, own_type, own_uuid)
+        self.new_node(name, own_addr, own_type, own_uuid, hardware)
 
-    def set_server(self, server_addr, server_uuid):
-        if server_uuid == self._own_uuid:
-            self._server = self._own_uuid
-        else:
-            self._server = self.new_node("server", server_addr, NetworkNodeType.CLOUD, server_uuid)
+    def set_server(self, server_uuid):
+        if server_uuid not in self._nodes:
+            logging.error(f"No node with uuid: {server_uuid}")
+            return
+        self._server = server_uuid
 
     def get_server(self):
         return self.get_node(self._server)
 
     # Create new node and add it to the dict
-    def new_node(self, name, addr, node_type, node_uuid):
-        node = NetworkNode(name, addr, node_uuid, node_type)
+    def new_node(self, name, addr, node_type, node_uuid, hardware=None):
+        node = NetworkNode(name, addr, node_uuid, node_type, hardware)
         self._nodes[node.uuid] = node
         self._edges[node.uuid] = []
         return node.uuid
@@ -117,8 +117,9 @@ class NetworkNode:
     type = NetworkNodeType.UNKNOWN
     components = set()  # Known resources
 
-    def __init__(self, name, addr, node_uuid, node_type):
+    def __init__(self, name, addr, node_uuid, node_type, hardware=None):
         self.name = name
         self.addr = addr
         self.uuid = node_uuid
         self.type = node_type
+        self.hardware = None

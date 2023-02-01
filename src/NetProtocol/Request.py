@@ -37,14 +37,12 @@ class Request:
         self.request = content
 
     def _construct_handshake_request(self, args):
-        content = dict(action=RequestType.HANDSHAKE)
-        if 'uuid' not in args:
-            logging.error(f"Missing UUID in handshake request")
-            self.request = None
-            return
+        req_fields = ['action', 'response', 'hw_stats', 'uuid']
+        args['action'] = RequestType.HANDSHAKE
         if 'response' not in args:
-            content['response'] = "false"
-        else:
-            content['response'] = args['response']
-        content['uuid'] = args['uuid']
-        self.request = content
+            args['response'] = "false"
+        for req_field in req_fields:
+            if req_field not in args:
+                logging.error(f"Handshake missing {req_field}")
+                return
+        self.request = args

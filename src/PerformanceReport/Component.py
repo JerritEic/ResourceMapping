@@ -1,5 +1,7 @@
 from enum import Enum
 
+from src.NetworkGraph.NetworkGraph import NetworkNode
+
 
 class ComponentType(Enum):
     UNKNOWN = 0  # Not yet discovered
@@ -9,7 +11,9 @@ class ComponentType(Enum):
 
 
 class Component:
-    def __init__(self, name, component_type: ComponentType, pid, associated_client):
+    def __init__(self, pid, associated_client: NetworkNode,
+                 name="Unknown",
+                 component_type: ComponentType = ComponentType.UNKNOWN):
         self.name = name
         self.type = component_type
         self.pid = pid

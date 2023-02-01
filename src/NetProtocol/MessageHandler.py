@@ -5,7 +5,6 @@ from uuid import UUID
 from src.NetProtocol.Message import Message
 from queue import Queue
 
-
 # thread that processes the incoming message queue
 from src.NetProtocol.Request import RequestType, Request
 from src.NetworkGraph.NetworkGraph import NetworkNodeType
@@ -43,16 +42,19 @@ class MessageHandler(threading.Thread):
 
     def _handle_handshake(self, item: Message):
         content = item.content.request
-        logging.debug(f"Received handshake CSEQ {item.json_header['CSeq']} with response: {content['response']} and UUID: {content['uuid']}"
-                      f" from {item.conn_handler.addr}")
+        logging.debug(
+            f"Received handshake CSEQ {item.json_header['CSeq']} with response: {content['response']} and UUID: {content['uuid']}"
+            f" from {item.conn_handler.addr}")
         item.conn_handler.uuid = UUID(content['uuid'])  # Update our knowledge of the peer UUID
         self.owner.net_graph.new_node(item.conn_handler.peer_name, item.conn_handler.addr,
-                                      NetworkNodeType.CLIENT, item.conn_handler.uuid)
+                                      NetworkNodeType.CLIENT, item.conn_handler.uuid, content['hw_stats'])
         self.owner.net_graph.new_connection_to_self(item.conn_handler.uuid)
         if content['response'] == "false":
-            # Reply with our own UUID
-            r = Request(RequestType.HANDSHAKE, dict(uuid=str(self.owner.uuid), response="true"))
-            item.content = r
+            # Reply with our own stats and UUID
+            response_dict = dict(uuid=self.owner.uuid,
+                                 hw_stats=self.owner.hardware_stats.copy(),
+                                 response="true")
+            item.content = Request(RequestType.HANDSHAKE, response_dict)
             item.conn_handler.send_message(item, is_response=True)
 
     def _handle_exit(self, item: Message):

@@ -9,6 +9,8 @@ from src.NetProtocol.Message import Message
 from src.NetProtocol.MessageHandler import MessageHandler
 from src.NetProtocol.Request import Request, RequestType
 from src.NetworkGraph.NetworkGraph import NetworkGraph, NetworkNodeType
+from src.PerformanceReport.HardwareMetrics import HardwareMetrics
+from src.PerformanceReport.Metrics import MetricCollector
 from src.Utility.NetworkUtilities import *
 from src.Node import Node
 from src.third_party.timed_count.timed_count.timed_count import timed_count
@@ -23,9 +25,7 @@ import uuid
 class Client(Node):
     db = None
     _database_template = "./resources/db_template.db"
-    _hw_metric_thread = None
-    _net_metric_thread = None
-    _component_metric_threads = []
+    _component_metric_handlers: [MetricCollector] = []
 
     def __init__(self, client_config):
         super().__init__()
@@ -39,7 +39,8 @@ class Client(Node):
         self.connection_monitor = ConnectionMonitor(self.termination_event, self.sel, self.receive_queue)
         self.message_handler = MessageHandler(self.receive_queue, self.termination_event, owner=self)
 
-        self.net_graph = NetworkGraph("client", (self.ip, self.server_port), NetworkNodeType.CLIENT, self.uuid)
+        self.net_graph = NetworkGraph("client", (self.ip, self.server_port),
+                                      NetworkNodeType.CLIENT, self.uuid, self.hardware_stats)
         # database
         if not self._initialize_sqlite_db():
             return
@@ -81,8 +82,12 @@ class Client(Node):
         # Start message handler to handle messages from all monitored connections
         self.message_handler.start()
 
+        handshake_dict = dict(uuid=self.uuid,
+                              hw_stats=self.hardware_stats.copy(),
+                              response="false")
+
         logging.info(f"Performing handshake with own uuid: {str(self.uuid)}")
-        message = Message(content=Request(RequestType.HANDSHAKE, dict(uuid=str(self.uuid))))
+        message = Message(content=Request(RequestType.HANDSHAKE, handshake_dict))
         future = conn_handler.send_message_and_wait_response(message)
         if not future.wait(timeout=10):
             logging.error(f"Timeout on handshake, aborting.")
@@ -92,16 +97,30 @@ class Client(Node):
         self.net_graph.set_server(conn_handler.addr, conn_handler.peer_uuid)
         # DO THINGS
 
+        # run metric collection
+        #self._metric_monitoring()
+
         # Send exit once finished
         message = Message(content=Request(RequestType.EXIT))
         conn_handler.send_message(message)  # don't wait for a response
         self.halt()
 
-    def metric_monitoring(self):
-        sample_period = 1.0/self.sampling_frequency
+    def _initialize_metric_handlers(self):
+        self._component_metric_handlers.append(HardwareMetrics())
 
-        while True:
-            pass
+    # Clock that runs the sampling of all components
+    def _metric_monitoring(self):
+        sample_period = 1.0/self.sampling_frequency
+        start_time = datetime.time()
+        for elapsed in timed_count(sample_period):
+            if elapsed.missed:
+                logging.warning(f"Sampling cannot keep up with this frequency...")
+            # Start all collectors
+            for metric_handler in self._component_metric_handlers:
+                metric_handler.collect()
+            # Halt all collectors
+            for metric_handler in self._component_metric_handlers:
+                metric_handler.halt()
 
 
     def halt(self):
