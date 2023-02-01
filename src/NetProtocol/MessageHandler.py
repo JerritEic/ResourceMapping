@@ -45,13 +45,13 @@ class MessageHandler(threading.Thread):
         logging.debug(
             f"Received handshake CSEQ {item.json_header['CSeq']} with response: {content['response']} and UUID: {content['uuid']}"
             f" from {item.conn_handler.addr}")
-        item.conn_handler.uuid = UUID(content['uuid'])  # Update our knowledge of the peer UUID
+        item.conn_handler.peer_uuid = UUID(content['uuid'])  # Update our knowledge of the peer UUID
         self.owner.net_graph.new_node(item.conn_handler.peer_name, item.conn_handler.addr,
-                                      NetworkNodeType.CLIENT, item.conn_handler.uuid, content['hw_stats'])
-        self.owner.net_graph.new_connection_to_self(item.conn_handler.uuid)
+                                      NetworkNodeType.CLIENT, item.conn_handler.peer_uuid, content['hw_stats'])
+        self.owner.net_graph.new_connection_to_self(item.conn_handler.peer_uuid)
         if content['response'] == "false":
             # Reply with our own stats and UUID
-            response_dict = dict(uuid=self.owner.uuid,
+            response_dict = dict(uuid=str(self.owner.uuid),
                                  hw_stats=self.owner.hardware_stats.copy(),
                                  response="true")
             item.content = Request(RequestType.HANDSHAKE, response_dict)

@@ -22,7 +22,7 @@ class Server(Node):
         self.uuid = cached_or_new_uuid(use_cached=True, cache_file="./server_cached_uuid.txt")
         self.net_graph = NetworkGraph("server", (self.ip, self.port),
                                       NetworkNodeType.CLOUD, self.uuid, self.hardware_stats)
-        self.net_graph.set_server((self.ip, self.port), self.uuid)
+        self.net_graph.set_server(self.uuid)
         self.connection_monitor = ConnectionMonitor(self.termination_event, self.sel, self.receive_queue)
         self.message_handler = MessageHandler(self.receive_queue, self.termination_event, owner=self)
 

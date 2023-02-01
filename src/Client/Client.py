@@ -13,7 +13,7 @@ from src.PerformanceReport.HardwareMetrics import HardwareMetrics
 from src.PerformanceReport.Metrics import MetricCollector
 from src.Utility.NetworkUtilities import *
 from src.Node import Node
-from src.third_party.timed_count.timed_count.timed_count import timed_count
+from timed_count import timed_count
 import sqlite3
 import logging
 import datetime
@@ -82,7 +82,7 @@ class Client(Node):
         # Start message handler to handle messages from all monitored connections
         self.message_handler.start()
 
-        handshake_dict = dict(uuid=self.uuid,
+        handshake_dict = dict(uuid=str(self.uuid),
                               hw_stats=self.hardware_stats.copy(),
                               response="false")
 
@@ -94,7 +94,7 @@ class Client(Node):
             self.halt()
             return
         # After handshake established, make sure new node is marked as server
-        self.net_graph.set_server(conn_handler.addr, conn_handler.peer_uuid)
+        self.net_graph.set_server(conn_handler.peer_uuid)
         # DO THINGS
 
         # run metric collection
