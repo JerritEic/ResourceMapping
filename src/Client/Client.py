@@ -11,6 +11,7 @@ from src.NetProtocol.Request import Request, RequestType
 from src.NetworkGraph.NetworkGraph import NetworkGraph, NetworkNodeType
 from src.Utility.NetworkUtilities import *
 from src.Node import Node
+from src.third_party.timed_count.timed_count.timed_count import timed_count
 import sqlite3
 import logging
 import datetime
@@ -98,7 +99,7 @@ class Client(Node):
 
     def metric_monitoring(self):
         sample_period = 1.0/self.sampling_frequency
-        next_sample = datetime.time() + sample_period
+
         while True:
             pass
 
