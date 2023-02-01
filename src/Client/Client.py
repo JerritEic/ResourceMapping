@@ -21,7 +21,6 @@ import uuid
 
 class Client(Node):
     db = None
-    uuid = None
     _database_template = "./resources/db_template.db"
     _hw_metric_thread = None
     _net_metric_thread = None
@@ -31,6 +30,7 @@ class Client(Node):
         super().__init__()
         self.server_ip = client_config['client']['server_ip']
         self.server_port = int(client_config['DEFAULT']['port'])
+        self.sampling_frequency = int(client_config['client']['sampling_frequency'])
 
         # uuid
         self.uuid = cached_or_new_uuid(client_config['DEFAULT'].getboolean('use_cached_uuid'))
@@ -89,8 +89,19 @@ class Client(Node):
             return
         # After handshake established, make sure new node is marked as server
         self.net_graph.set_server(conn_handler.addr, conn_handler.peer_uuid)
+        # DO THINGS
+
+        # Send exit once finished
         message = Message(content=Request(RequestType.EXIT))
         conn_handler.send_message(message)  # don't wait for a response
+        self.halt()
+
+    def metric_monitoring(self):
+        sample_period = 1.0/self.sampling_frequency
+        next_sample = datetime.time() + sample_period
+        while True:
+            pass
+
 
     def halt(self):
         self.termination_event.set()
