@@ -1,25 +1,11 @@
 import configparser
 import argparse
-from src.Server.Server import Server
-from src.Client.Client import Client
+from src.app.Application import Application
 import logging
 
-
-def start_server(server_config):
-    # initialize server
-    server = Server(server_config)
-    # start accepting client connections and building node graph
-    server.start()
-
-
-def start_client(client_config):
-    # initialize client
-    client = Client(client_config)
-    client.start()
-
-
-# Entry point
+# Python entry point
 if __name__ == '__main__':
+    # Read configuration
     parser = argparse.ArgumentParser(description='Reads and controls game network resources.')
     parser.add_argument('-s', '--server', default=False, action='store_true')
     args = parser.parse_args()
@@ -36,8 +22,8 @@ if __name__ == '__main__':
     else:
         logging.basicConfig(level=level, format='%(threadName)s- %(levelname)s - %(message)s')
 
-    # Begin process
-    if args.server:
-        start_server(config)
-    else:
-        start_client(config)
+    # Begin resource monitoring
+    # TODO also start a client alongside a server
+    app = Application(config, args.server)
+    app.start()
+

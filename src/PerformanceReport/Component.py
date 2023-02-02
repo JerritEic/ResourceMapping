@@ -1,13 +1,15 @@
-from enum import Enum
+from enum import IntEnum
 
 from src.NetworkGraph.NetworkGraph import NetworkNode
 
 
-class ComponentType(Enum):
+class ComponentType(IntEnum):
     UNKNOWN = 0  # Not yet discovered
-    FRONTEND = 1
-    SIMULATOR = 2
-    RENDERER = 3
+    RESOURCE_SERVER = 1
+    RESOURCE_CLIENT = 2
+    FRONTEND = 3
+    SIMULATOR = 4
+    RENDERER = 5
 
 
 class Component:
@@ -18,3 +20,5 @@ class Component:
         self.type = component_type
         self.pid = pid
         self.associated_client = associated_client
+        self.is_active = True
+        self.gpu_active = False
