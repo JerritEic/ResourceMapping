@@ -33,6 +33,8 @@ class MessageHandler:
             self._handle_handshake(item)
         elif action == RequestType.METRIC:
             self._handle_metric(item)
+        elif action == RequestType.COMPONENT:
+            self._handle_component(item)
         elif action == RequestType.EXIT:
             self._handle_exit(item)
         # If this message is a response being waited on, notify
@@ -48,6 +50,7 @@ class MessageHandler:
         self.owner.net_graph.new_node(item.conn_handler.peer_name, item.conn_handler,
                                       NetworkNodeType.CLIENT, item.conn_handler.peer_uuid, content['hw_stats'])
         self.owner.net_graph.new_connection_to_self(item.conn_handler.peer_uuid)
+        logging.debug(str(self.owner.net_graph))
         if not content['response']:
             # Reply with our own stats and UUID
             response_dict = dict(uuid=str(self.owner.uuid),
@@ -58,8 +61,7 @@ class MessageHandler:
 
     def _handle_metric(self, item: Message):
         content = item.content.request
-        logging.debug(
-            f"Received metric request metrics: {content['metrics']} from {item.conn_handler.addr}")
+        # logging.debug(f"Received metric request metrics: {content['metrics']} from {item.conn_handler.addr}")
         if not content['response']:
             # reply with an aggregate report of metrics
             time_start = self.owner.elapsed_time - content['period']
@@ -67,7 +69,25 @@ class MessageHandler:
             table = content['metrics'][0]
             res = cur.execute(f"SELECT AVG(cpu), AVG(memory), pid, process_name FROM {table} INNER JOIN components ON"
                               f" components.pid = {table}.component WHERE timestamp > ? GROUP BY pid", (time_start,))
-            logging.debug(f"metric report: {res.fetchall()}")
+            # logging.debug(f"metric report: {res.fetchall()}")
+            response_dict = dict(period=content['period'],
+                                 metrics=res.fetchall(),
+                                 response=True)
+            item.content = Request(RequestType.METRIC, response_dict)
+            item.conn_handler.send_message(item, is_response=True)
+        else:
+            # handle a received aggregate report of metrics
+            pass
+
+    def _handle_component(self, item: Message):
+        content = item.content.request
+        logging.debug(f"Received component request: {content['components']} from {item.conn_handler.addr}")
+        if not content['response']:
+            # start the requested components, reply with status
+
+            response_dict = dict(response=True)
+            item.content = Request(RequestType.METRIC, response_dict)
+            item.conn_handler.send_message(item, is_response=True)
         else:
             # handle a received aggregate report of metrics
             pass

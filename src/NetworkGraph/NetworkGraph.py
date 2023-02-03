@@ -19,6 +19,9 @@ class NetworkEdge:
         self.v2_uuid = v2_uuid
         self.conn_uuid = v1_uuid.bytes + v2_uuid.bytes
 
+    def __str__(self):
+        return f"{str(self.v1_uuid)[5:]} <-> {str(self.v2_uuid)[5:]}"
+
 
 # Represents a host on the network
 class NetworkNode:
@@ -34,6 +37,9 @@ class NetworkNode:
         self.uuid = node_uuid
         self.type = node_type
         self.hardware = hardware
+
+    def __str__(self):
+        return f"({self.name}, {str(self.uuid) [5:]})"
 
 
 # Constructs a graph of the network resources that this node knows about
@@ -143,3 +149,12 @@ class NetworkGraph:
 
         # Check connection not already made, using uuid combination as a per-connection uuid
         return self.get_connection_by_conn_uuid(v1_uuid + v2_uuid)
+
+    def __str__(self):
+        f_str = "Nodes:\n"
+        for n in self._nodes:
+            f_str += f"    {str(self.get_node(n))}\n"
+        f_str += "Connections:\n"
+        for e in self._connections:
+            f_str += f"    {str(self.get_connection_by_conn_uuid(e))}\n"
+        return f_str

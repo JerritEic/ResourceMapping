@@ -141,7 +141,7 @@ class ConnectionHandler(Thread):
     # Send data in the send buffer
     def _write(self):
         if self._send_buffer:
-            logging.debug(f"Sending {self._send_buffer!r} to {self.addr}")
+            # logging.debug(f"Sending {self._send_buffer!r} to {self.addr}")
             try:
                 # Should be ready to write
                 sent = self.sock.send(self._send_buffer)
@@ -188,11 +188,11 @@ class ConnectionHandler(Thread):
         if hdr["content_type"] == "text/json":
             encoding = hdr["content_encoding"]
             self._current_recv_message.content = Request(content=json_decode(data, encoding))
-            logging.debug(f"Received request {self._current_recv_message.content.request!r} from {self.addr}")
+            # logging.debug(f"Received request {self._current_recv_message.content.request!r} from {self.addr}")
         else:
             # Binary or unknown content-type
             self._current_recv_message.content = data
-            logging.info(
+            logging.debug(
                 f"Received {hdr['content_type']} "
                 f"request from {self.addr}"
             )

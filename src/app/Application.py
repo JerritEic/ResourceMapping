@@ -5,17 +5,17 @@ import threading
 import time
 from queue import Queue
 
+from src.Experiment.Experiment import get_experiment_by_name
 from src.NetProtocol.ConnectionHandler import ConnectionHandler, ConnectionMonitor
 from src.NetProtocol.Message import Message
 from src.NetProtocol.MessageHandler import MessageHandler
 from src.NetProtocol.Request import Request, RequestType
 from src.NetworkGraph.NetworkGraph import NetworkGraph, NetworkNodeType
-from src.PerformanceReport.Component import Component, ComponentType
+from src.app.Component import Component, ComponentType, ComponentHandler
 from src.PerformanceReport.HardwareMetrics import HardwareMetrics
 from src.PerformanceReport.Metrics import MetricCollector, MetricCollectionMode
 from src.Utility.MetricUtilities import get_static_hardware_stats, dict_factory
 from src.Utility.NetworkUtilities import *
-from timed_count import timed_count
 import sqlite3
 import logging
 from datetime import datetime
@@ -27,15 +27,21 @@ import shutil
 class Application:
     db = None
     _database_template = "./resources/db_template.db"
-    _components: [Component] = []
+    _component_handler = None
     _component_metric_handlers: [MetricCollector] = []
-    # By default, database and stdout
-    _default_metric_collection_mode = MetricCollectionMode.TO_DB + MetricCollectionMode.TO_STDOUT
+    # By default, database
+    _default_metric_collection_mode = MetricCollectionMode.TO_DB
     _db_file = None
 
     def __init__(self, config, is_server):
         self.is_server = is_server
         self.p_name = "ResourceServer" if self.is_server else "ResourceClient"
+        # experiment
+        self.experiment = get_experiment_by_name(config['DEFAULT']['experiment'])
+        if self.experiment is None:
+            logging.error(f"Experiment {config['DEFAULT']['experiment']} not found!")
+            self.halt()
+
         self.termination_event = threading.Event()
         self._persist_db = config[self.p_name].getboolean('persist_db')
         # database
@@ -51,6 +57,7 @@ class Application:
         self.server_ip = config["ResourceClient"]['server_ip']
         self.port = int(config['DEFAULT']['port'])
         self.sampling_frequency = int(config[self.p_name]['sampling_frequency'])
+        self.experiment.sampling_frequency = self.sampling_frequency
 
         # uuid
         self.uuid = cached_or_new_uuid(config[self.p_name].getboolean('use_cached_uuid'),
@@ -69,11 +76,9 @@ class Application:
         self.message_handler = MessageHandler(self.receive_queue, self.termination_event, owner=self)
 
         # Fill in initial component (which is this application)
-        comp_type = ComponentType.RESOURCE_SERVER if self.is_server else ComponentType.RESOURCE_CLIENT
-        c = Component(os.getpid(), self.net_graph.get_own_node(),
-                      name=self.p_name,
-                      component_type=comp_type)
-        self.add_component(c)
+        c = Component(os.getpid(), self.net_graph.get_own_node(), name=self.p_name)
+        self._component_handler = ComponentHandler(self, config['DEFAULT']['components_file'])
+        self._component_handler.add_component(c)
         self.elapsed_time = 0
 
     def _initialize_sqlite_db(self):
@@ -161,15 +166,9 @@ class Application:
         conn_handler.send_message(message)  # don't wait for a response
         self.halt()
 
-    def add_component(self, component: Component):
-        self.db_write_cur.execute("INSERT INTO components VALUES (?, ?)",
-                                  (component.name, component.pid))
-        self.db.commit()
-        self._components.append(component)
-
     def _initialize_metric_handlers(self):
         self._component_metric_handlers.append(
-            MetricCollector(HardwareMetrics, self._components, self._default_metric_collection_mode, self.db_write_cur))
+            MetricCollector(HardwareMetrics, self._component_handler.components, self._default_metric_collection_mode, self.db_write_cur))
 
     # Clock that runs the local metric sampling of all components
     def _exec_loop(self):
@@ -187,17 +186,11 @@ class Application:
                     self.elapsed_time = (t - start_t)
 
                     if self.is_server:
-                        self._iter_server()
+                        self.experiment.experiment_step()
                     else:
                         self._iter_client()
         except KeyboardInterrupt:
             logging.debug("Caught keyboard interrupt, exiting")
-
-    def _iter_server(self):
-        for n_uuid in self.net_graph.get_all_connected_node_uuids_self():
-            metric_dict = dict(metrics=["hardware_metrics"], period=self.sampling_frequency)
-            message = Message(content=Request(RequestType.METRIC, metric_dict))
-            self.net_graph.get_node(n_uuid).conn_handler.send_message(message)
 
     def _iter_client(self):
         # Start all collectors
@@ -208,7 +201,6 @@ class Application:
             metric_handler.process_results()
         # Commit any metrics logged to DB
         self.db.commit()
-
 
     def halt(self):
         if self.termination_event:
