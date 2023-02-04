@@ -6,6 +6,7 @@ import traceback
 from socket import socket
 from threading import Event, Thread
 
+from src.NetProtocol.AwaitResponse import MessageEvent
 from src.NetProtocol.Request import Request
 from src.Utility.NetworkUtilities import json_decode
 from src.NetProtocol.Message import Message
@@ -99,6 +100,7 @@ class ConnectionHandler(Thread):
         self._read()
 
         if self._current_recv_message is None:
+            logging.debug(f"started receiving new message")
             self._current_recv_message = Message(handler=self)
 
         # could take multiple _read to process single message, so keep track of headers
@@ -152,8 +154,7 @@ class ConnectionHandler(Thread):
                 self._send_buffer = self._send_buffer[sent:]
                 if sent and not self._send_buffer:
                     # buffer is drained. The response has been sent.
-                    # logging.debug(f"Message has been sent")
-                    pass
+                    logging.debug(f"Message has been sent")
 
     # Process the fixed length header (2 byte, big endian), gives length of following JSON header
     def _process_protoheader(self):
@@ -188,7 +189,7 @@ class ConnectionHandler(Thread):
         if hdr["content_type"] == "text/json":
             encoding = hdr["content_encoding"]
             self._current_recv_message.content = Request(content=json_decode(data, encoding))
-            # logging.debug(f"Received request {self._current_recv_message.content.request!r} from {self.addr}")
+            logging.debug(f"Received request {self._current_recv_message.content.request['action']} from {self.addr}")
         else:
             # Binary or unknown content-type
             self._current_recv_message.content = data
@@ -199,19 +200,8 @@ class ConnectionHandler(Thread):
         self._receive_queue.put(self._current_recv_message)
         self._current_recv_message = None
 
-    # enqueue a request
+    # enqueue a request, return CSeq
     def send_message(self, message: Message, is_response=False):
-        message.conn_handler = self
-        message.is_received = False
-        # Don't change the CSeq if we are responding to a message
-        if not is_response:
-            self.CSeq = (self.CSeq + 1) % CSEQ_MAX
-            message.CSeq = self.CSeq
-        #self._set_selector_events_mask('rw')
-        self._send_queue.put(message.get_serialized())
-
-    # enqueue a request, returns a future to wait for a response
-    def send_message_and_wait_response(self, message: Message, is_response=False):
         logging.debug(f"Enqueued: {message.content.request['action']} to {self.addr}")
         message.conn_handler = self
         message.is_received = False
@@ -221,14 +211,29 @@ class ConnectionHandler(Thread):
             message.CSeq = self.CSeq
         #self._set_selector_events_mask('rw')
         self._send_queue.put(message.get_serialized())
-        return self._add_new_await(message.CSeq)
+
+    # enqueue a request, returns a future to wait for a response. If yield_message is true, the message handler will
+    # pass the message through this event rather than handle it itself
+    def send_message_and_wait_response(self, message: Message, is_response=False, yield_message=False) -> MessageEvent:
+        logging.debug(f"Enqueued: {message.content.request['action']} to {self.addr}")
+        message.conn_handler = self
+        message.is_received = False
+        # Don't change the CSeq if we are responding to a message
+        if not is_response:
+            self.CSeq = (self.CSeq + 1) % CSEQ_MAX
+            message.CSeq = self.CSeq
+        #self._set_selector_events_mask('rw')
+        # Add the wait event before sending
+        message_event = self._add_new_await(message.CSeq, yield_message)
+        self._send_queue.put(message.get_serialized())
+        return message_event
 
     # Add a new CSeq await to the list of waiting event objects
-    def _add_new_await(self, CSeq):
-        event = Event()
+    def _add_new_await(self, CSeq, yield_message) -> MessageEvent:
         if CSeq in self.await_list:
             logging.error(f"Already waiting for a response to this message...")
-            return None
+        event = MessageEvent(yield_message)
+        logging.debug(f"Adding await for CSeq {CSeq}")
         self.await_list[CSeq] = event
         return event
 

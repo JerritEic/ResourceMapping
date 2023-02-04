@@ -28,6 +28,22 @@ class MessageHandler:
         # encoding = hdr["content_encoding"]
         content = item.content.request
         action = content['action']
+        response = False
+        if 'response' in content:
+            response = content['response']
+
+        # If this message is a response being waited on, notify. If yield message is true, return to let the event
+        # listener handle it.
+        if response and item.CSeq in item.conn_handler.await_list:
+            yield_message = item.conn_handler.await_list[item.CSeq].yield_message
+            if yield_message:
+                item.conn_handler.await_list[item.CSeq].set_message(item)
+            item.conn_handler.await_list[item.CSeq].set()
+            # Remove this CSeq from the await dict
+            logging.debug(f"Removing await for CSeq {item.CSeq}")
+            item.conn_handler.await_list.pop(item.CSeq)
+            if yield_message:
+                return
 
         if action == RequestType.HANDSHAKE:
             self._handle_handshake(item)
@@ -37,9 +53,7 @@ class MessageHandler:
             self._handle_component(item)
         elif action == RequestType.EXIT:
             self._handle_exit(item)
-        # If this message is a response being waited on, notify
-        if item.CSeq in item.conn_handler.await_list:
-            item.conn_handler.await_list[item.CSeq].set()
+
 
     def _handle_handshake(self, item: Message):
         content = item.content.request
@@ -83,11 +97,19 @@ class MessageHandler:
         content = item.content.request
         logging.debug(f"Received component request: {content['components']} from {item.conn_handler.addr}")
         if not content['response']:
-            # start the requested components, reply with status
-
-            response_dict = dict(response=True)
-            item.content = Request(RequestType.METRIC, response_dict)
-            item.conn_handler.send_message(item, is_response=True)
+            if content['component_actions'][0] == "start":
+                # start the requested components, reply with status
+                pid = self.owner.component_handler.start_component(content['components'][0])
+                if pid == -1:
+                    # Could not start the process, reply with an error
+                    err_dict = dict(error=f"Could not start process {content['components'][0]}")
+                    item.content = Request(RequestType.ERROR, err_dict)
+                    item.conn_handler.send_message(item, is_response=True)
+                else:
+                    content['response'] = True
+                    content['results'] = [pid]
+                    item.content = Request(RequestType.COMPONENT, content)
+                    item.conn_handler.send_message(item, is_response=True)
         else:
             # handle a received aggregate report of metrics
             pass

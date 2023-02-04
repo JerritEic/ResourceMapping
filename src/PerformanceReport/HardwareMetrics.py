@@ -5,10 +5,13 @@ from psutil import NoSuchProcess, AccessDenied
 
 from src.PerformanceReport.Metrics import Metric
 import psutil
-from src.PerformanceReport.Component import Component
+
 
 
 # Collects hardware metrics system wide and for specified components
+from src.app.Component import Component
+
+
 class HardwareMetrics(Metric):
     _db_sub_query = "SELECT pid FROM components WHERE pid = :pid"
     db_query_template = f"INSERT INTO hardware_metrics VALUES (:timestamp, ({_db_sub_query}), :cpu, :memory)"

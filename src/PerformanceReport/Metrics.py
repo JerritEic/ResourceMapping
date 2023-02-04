@@ -4,7 +4,7 @@ import sqlite3
 import threading
 from enum import Enum
 
-from src.PerformanceReport.Component import Component
+from src.app.Component import Component
 
 
 class MetricCollectionMode:

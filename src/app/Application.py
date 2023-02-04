@@ -5,13 +5,13 @@ import threading
 import time
 from queue import Queue
 
-from src.Experiment.Experiment import get_experiment_by_name
+from src.Experiment.ExperimentList import get_experiment_by_name
 from src.NetProtocol.ConnectionHandler import ConnectionHandler, ConnectionMonitor
 from src.NetProtocol.Message import Message
 from src.NetProtocol.MessageHandler import MessageHandler
 from src.NetProtocol.Request import Request, RequestType
 from src.NetworkGraph.NetworkGraph import NetworkGraph, NetworkNodeType
-from src.app.Component import Component, ComponentType, ComponentHandler
+from src.app.Component import Component, ComponentHandler
 from src.PerformanceReport.HardwareMetrics import HardwareMetrics
 from src.PerformanceReport.Metrics import MetricCollector, MetricCollectionMode
 from src.Utility.MetricUtilities import get_static_hardware_stats, dict_factory
@@ -26,11 +26,12 @@ import shutil
 # Entry point for resource monitoring
 class Application:
     db = None
-    _database_template = "./resources/db_template.db"
-    _component_handler = None
-    _component_metric_handlers: [MetricCollector] = []
+    _database_template = None
+    component_handler = None
+    connection_monitor = None
+    component_metric_handlers: [MetricCollector] = []
     # By default, database
-    _default_metric_collection_mode = MetricCollectionMode.TO_DB
+    _default_metric_collection_mode = MetricCollectionMode.TO_DB + MetricCollectionMode.TO_STDOUT
     _db_file = None
 
     def __init__(self, config, is_server):
@@ -43,6 +44,7 @@ class Application:
             self.halt()
 
         self.termination_event = threading.Event()
+        self._database_template = config[self.p_name]['database_template']
         self._persist_db = config[self.p_name].getboolean('persist_db')
         # database
         self.db_write_cur = None
@@ -77,8 +79,8 @@ class Application:
 
         # Fill in initial component (which is this application)
         c = Component(os.getpid(), self.net_graph.get_own_node(), name=self.p_name)
-        self._component_handler = ComponentHandler(self, config['DEFAULT']['components_file'])
-        self._component_handler.add_component(c)
+        self.component_handler = ComponentHandler(self, config['DEFAULT']['components_file'])
+        self.component_handler.add_component(c)
         self.elapsed_time = 0
 
     def _initialize_sqlite_db(self):
@@ -118,7 +120,10 @@ class Application:
         self.sel.register(s, selectors.EVENT_READ | selectors.EVENT_WRITE, data=None)
         # Main connection thread, reads recv of each connection into a message queue
         self.connection_monitor.start()
-
+        if not self.experiment.setup(self.net_graph, self.message_handler):
+            logging.error(f"Experiment setup failed, aborting.")
+            self.halt()
+            return
         self._exec_loop()
         self.halt()
 
@@ -167,8 +172,8 @@ class Application:
         self.halt()
 
     def _initialize_metric_handlers(self):
-        self._component_metric_handlers.append(
-            MetricCollector(HardwareMetrics, self._component_handler.components, self._default_metric_collection_mode, self.db_write_cur))
+        self.component_metric_handlers.append(
+            MetricCollector(HardwareMetrics, self.component_handler.components, self._default_metric_collection_mode, self.db_write_cur))
 
     # Clock that runs the local metric sampling of all components
     def _exec_loop(self):
@@ -194,20 +199,20 @@ class Application:
 
     def _iter_client(self):
         # Start all collectors
-        for metric_handler in self._component_metric_handlers:
+        for metric_handler in self.component_metric_handlers:
             metric_handler.collect(elapsed_time=self.elapsed_time)
         # Process collected metrics
-        for metric_handler in self._component_metric_handlers:
+        for metric_handler in self.component_metric_handlers:
             metric_handler.process_results()
         # Commit any metrics logged to DB
         self.db.commit()
 
     def halt(self):
-        if self.termination_event:
+        if self.termination_event is not None:
             self.termination_event.set()
-        if self.connection_monitor:
+        if self.connection_monitor is not None:
             self.connection_monitor.join()
-        if self.db:
+        if self.db is not None:
             self.db.close()
         if not self._persist_db:
             os.remove(self._db_file)

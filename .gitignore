@@ -301,7 +301,9 @@ pip-selfcheck.json
 cached_uuid.txt
 server_cached_uuid.txt
 *.db
-!src/resources/db_template.db
+!src/resources/client_db_template.db
+!src/resources/server_db_template.db
 
 resources/GameStream
 resources/MC
+logs/

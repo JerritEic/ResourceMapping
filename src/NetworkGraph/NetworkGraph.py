@@ -4,6 +4,7 @@ import logging
 from typing import Union
 
 from src.NetProtocol.ConnectionHandler import ConnectionHandler
+from src.app.Component import Component
 
 
 class NetworkNodeType(Enum):
@@ -29,7 +30,7 @@ class NetworkNode:
     name = "unknown"
     addr = ("0.0.0.0", 42)  # IP starts unknown
     type = NetworkNodeType.UNKNOWN
-    components = set()  # Known resources
+    components = []  # Known resources
 
     def __init__(self, name, conn_handler: ConnectionHandler, node_uuid, node_type, hardware=None):
         self.name = name
@@ -40,6 +41,9 @@ class NetworkNode:
 
     def __str__(self):
         return f"({self.name}, {str(self.uuid) [5:]})"
+
+    def add_known_component(self, component: Component):
+        self.components.append(component)
 
 
 # Constructs a graph of the network resources that this node knows about
