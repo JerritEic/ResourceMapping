@@ -9,6 +9,7 @@ from queue import Queue
 from src.NetProtocol.Request import RequestType, Request
 from src.NetworkGraph.NetworkGraph import NetworkNodeType
 from typing import TYPE_CHECKING
+
 if TYPE_CHECKING:
     from src.app.Application import Application
 
@@ -54,16 +55,18 @@ class MessageHandler:
         elif action == RequestType.EXIT:
             self._handle_exit(item)
 
-
     def _handle_handshake(self, item: Message):
         content = item.content.request
         logging.debug(
             f"Received handshake CSEQ {item.json_header['CSeq']} with response: {content['response']} and UUID: {content['uuid']}"
             f" from {item.conn_handler.addr}")
-        item.conn_handler.peer_uuid = UUID(content['uuid'])  # Update our knowledge of the peer UUID
-        self.owner.net_graph.new_node(item.conn_handler.peer_name, item.conn_handler,
-                                      NetworkNodeType.CLIENT, item.conn_handler.peer_uuid, content['hw_stats'])
-        self.owner.net_graph.new_connection_to_self(item.conn_handler.peer_uuid)
+        peer_uuid = UUID(content['uuid'])
+        peer_node = self.owner.net_graph.new_node(item.conn_handler.peer_name, item.conn_handler,
+                                                  item.conn_handler.addr, NetworkNodeType.CLIENT,
+                                                  peer_uuid, content['hw_stats'])
+        item.conn_handler.peer = peer_node  # Update connection's knowledge of peer
+
+        self.owner.net_graph.new_connection_to_self(peer_uuid)
         logging.debug(str(self.owner.net_graph))
         if not content['response']:
             # Reply with our own stats and UUID
@@ -71,7 +74,7 @@ class MessageHandler:
                                  hw_stats=self.owner.hardware_stats.copy(),
                                  response=True)
             item.content = Request(RequestType.HANDSHAKE, response_dict)
-            item.conn_handler.send_message(item, is_response=True)
+            item.conn_handler.send_message(item, is_response=True)  # don't wait for reply
 
     def _handle_metric(self, item: Message):
         content = item.content.request
@@ -80,7 +83,7 @@ class MessageHandler:
             # reply with an aggregate report of metrics
             time_start = self.owner.elapsed_time - content['period']
             cur = self.owner.db.cursor()
-            table = content['metrics'][0]
+            table = content['metrics'][0]  # in a request, 'metrics' is a list of metrics to return
             res = cur.execute(f"SELECT AVG(cpu), AVG(memory), pid, process_name FROM {table} INNER JOIN components ON"
                               f" components.pid = {table}.component WHERE timestamp > ? GROUP BY pid", (time_start,))
             # logging.debug(f"metric report: {res.fetchall()}")
@@ -90,8 +93,7 @@ class MessageHandler:
             item.content = Request(RequestType.METRIC, response_dict)
             item.conn_handler.send_message(item, is_response=True)
         else:
-            # handle a received aggregate report of metrics
-            pass
+            item.conn_handler.peer.add_received_metric(content['metrics'])
 
     def _handle_component(self, item: Message):
         content = item.content.request
@@ -111,7 +113,8 @@ class MessageHandler:
                     item.content = Request(RequestType.COMPONENT, content)
                     item.conn_handler.send_message(item, is_response=True)
         else:
-            # handle a received aggregate report of metrics
+            # handle a received component response
+            # currently handled by where a component request was sent.
             pass
 
     def _handle_exit(self, item: Message):

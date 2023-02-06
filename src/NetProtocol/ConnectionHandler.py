@@ -79,7 +79,7 @@ class ConnectionHandler(Thread):
         self.addr = addr
         self.peer_name = f"peer_{num}"
         self.CSeq = -1  # Sequence number we use when sending messages, incremented each message
-        self.peer_uuid = "Unknown"
+        self.peer = None  # Is set to a NetworkNode after a successful handshake
         self._recv_buffer = b""
         self._send_buffer = b""
         self._current_recv_message = None
@@ -147,6 +147,7 @@ class ConnectionHandler(Thread):
             try:
                 # Should be ready to write
                 sent = self.sock.send(self._send_buffer)
+
             except BlockingIOError:
                 # Resource temporarily unavailable (errno EWOULDBLOCK)
                 pass
@@ -252,6 +253,8 @@ class ConnectionHandler(Thread):
 
     def close(self):
         logging.info(f"Closing connection to {self.addr}")
+        if self.peer is not None:
+            self.peer.is_active = False
         try:
             self.selector.unregister(self.sock)
         except Exception as e:

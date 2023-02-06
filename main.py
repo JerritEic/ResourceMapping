@@ -1,5 +1,7 @@
 import configparser
 import argparse
+import os
+
 from src.app.Application import Application
 import logging
 
@@ -22,8 +24,12 @@ if __name__ == '__main__':
     else:
         logging.basicConfig(level=level, format='%(threadName)s- %(levelname)s - %(message)s')
 
+    if not os.path.isdir('./logs'):
+        os.makedirs('./logs')
+
+
     # Begin resource monitoring
-    # TODO also start a client alongside a server
+    # TODO also start a client alongside a server?
     app = Application(config, args.server)
     app.start()
 

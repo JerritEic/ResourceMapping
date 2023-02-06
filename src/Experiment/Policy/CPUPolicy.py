@@ -5,5 +5,5 @@ class CPUPolicy(Policy):
     def __init__(self):
         pass
 
-    def check_policy(self, net_graph):
+    def check(self, nodes):
         pass

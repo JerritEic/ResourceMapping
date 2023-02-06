@@ -78,7 +78,7 @@ class Application:
         self.message_handler = MessageHandler(self.receive_queue, self.termination_event, owner=self)
 
         # Fill in initial component (which is this application)
-        c = Component(os.getpid(), self.net_graph.get_own_node(), name=self.p_name)
+        c = Component(os.getpid(), name=self.p_name)
         self.component_handler = ComponentHandler(self, config['DEFAULT']['components_file'])
         self.component_handler.add_component(c)
         self.elapsed_time = 0
@@ -160,7 +160,7 @@ class Application:
                 logging.error(f"Timeout on handshake, aborting.")
                 self.halt()
         # After handshake established, make sure new node is marked as server
-        self.net_graph.set_server(conn_handler.peer_uuid)
+        self.net_graph.set_server(conn_handler.peer.uuid)
 
         # run metric collection
         self._initialize_metric_handlers()
@@ -191,7 +191,8 @@ class Application:
                     self.elapsed_time = (t - start_t)
 
                     if self.is_server:
-                        self.experiment.experiment_step()
+                        if not self.experiment.experiment_step():
+                            break
                     else:
                         self._iter_client()
         except KeyboardInterrupt:

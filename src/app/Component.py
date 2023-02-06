@@ -2,27 +2,27 @@ import configparser
 import logging
 import subprocess
 from os.path import exists
-from enum import IntEnum
 
 import minecraft_launcher_lib
 from typing import TYPE_CHECKING
+
+from src.Utility.ComponentUtilities import check_if_jar_running
+
 if TYPE_CHECKING:
     from src.app.Application import Application
 
 
 class Component:
-    def __init__(self, pid, associated_client_uuid,
-                 name="Unknown", process=None):
+    def __init__(self, pid, name="Unknown", process=None):
         self.name = name
         self.pid = pid
-        self.associated_client_uuid = associated_client_uuid
         self.is_active = True
         self.gpu_active = False
         self.process = process
 
 
 # Installs MC if not installed, returns command to run it
-def special_start_mc_client_cmd(cwd) -> (str, list[str]):
+def special_start_mc_client_cmd(cwd) -> (list[str], str, int):
     minecraft_directory = cwd
     # minecraft_launcher_lib.install.install_minecraft_version("1.12.2", minecraft_directory)
     options = minecraft_launcher_lib.utils.generate_test_options()
@@ -33,12 +33,19 @@ def special_start_mc_client_cmd(cwd) -> (str, list[str]):
     # Set custom resolution
     options["resolutionWidth"] = "960"
     options["resolutionHeight"] = "540"
-    return minecraft_launcher_lib.command.get_minecraft_command("1.12.2", minecraft_directory, options), "./"
+    return minecraft_launcher_lib.command.get_minecraft_command("1.12.2", minecraft_directory, options), "./", subprocess.DEVNULL
+
+
+def special_start_mc_server_cmd(cwd) -> (list[str], str, int):
+    # Kill any PID running opencraft.jar
+    check_if_jar_running("opencraft", kill=True)
+    return [f"{cwd}jre-legacy/bin/java.exe", "-jar", f"{cwd}opencraft.jar"], "./", subprocess.DEVNULL
 
 
 # Special component commands
 special_commands = dict(
-    SPECIAL_START_MC_CLIENT=special_start_mc_client_cmd
+    SPECIAL_START_MC_CLIENT=special_start_mc_client_cmd,
+    SPECIAL_START_MC_SERVER=special_start_mc_server_cmd
 )
 
 
@@ -68,20 +75,23 @@ class ComponentHandler:
         # start the component
         cwd = self.component_config[component_name]['path']
         cmd = self.component_config[component_name]['start']
-        proc = self._start_component_command(cmd=cmd, cwd=cwd)
+        proc = self._start_component_command(cmd=cmd, cwd=cwd, name=component_name)
         if proc is not None:
-            self.add_component(Component(proc.pid, self.owner.uuid, component_name, process=proc))
+            self.add_component(Component(proc.pid, component_name, process=proc))
             return proc.pid
         else:
             return -1
 
-    def _start_component_command(self, cmd, cwd):
+    def _start_component_command(self, cmd, cwd, name):
         # Check if there is a special command for starting this component
+        stdout = None
         if cmd in special_commands:
-            cmd, cwd = special_commands[cmd](cwd)
+            cmd, cwd, stdout = special_commands[cmd](cwd)
         try:
-            logging.debug(f"Executing {cmd}")
-            proc = subprocess.Popen(cmd, cwd=cwd)
+            logging.debug(f"Executing {cmd} in dir {cwd}")
+            if stdout is None:
+                stdout = open(f"./logs/{self.owner.p_name}_{str(self.owner.uuid)[-5:]}_{name}_out.txt", 'w')
+            proc = subprocess.Popen(cmd, cwd=cwd, stdout=stdout, stderr=subprocess.STDOUT)
             if proc.poll() is not None:
                 logging.error(f"subprocess {cmd} terminated early with {proc.returncode}")
                 return None

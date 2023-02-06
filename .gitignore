@@ -307,3 +307,5 @@ server_cached_uuid.txt
 resources/GameStream
 resources/MC
 logs/
+config/
+worlds/

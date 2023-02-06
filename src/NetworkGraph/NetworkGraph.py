@@ -21,29 +21,34 @@ class NetworkEdge:
         self.conn_uuid = v1_uuid.bytes + v2_uuid.bytes
 
     def __str__(self):
-        return f"{str(self.v1_uuid)[5:]} <-> {str(self.v2_uuid)[5:]}"
+        return f"{str(self.v1_uuid)[-5:]} <-> {str(self.v2_uuid)[-5:]}"
 
 
 # Represents a host on the network
 class NetworkNode:
     uuid = ""
     name = "unknown"
-    addr = ("0.0.0.0", 42)  # IP starts unknown
     type = NetworkNodeType.UNKNOWN
-    components = []  # Known resources
+    components = []  # Known components
+    received_metrics = []  # List of received metric dicts
 
-    def __init__(self, name, conn_handler: ConnectionHandler, node_uuid, node_type, hardware=None):
+    def __init__(self, name, conn_handler: ConnectionHandler, addr, node_uuid, node_type, hardware=None):
         self.name = name
         self.conn_handler = conn_handler
+        self.addr = addr
         self.uuid = node_uuid
         self.type = node_type
         self.hardware = hardware
+        self.is_active = True
 
     def __str__(self):
-        return f"({self.name}, {str(self.uuid) [5:]})"
+        return f"({self.name}, {str(self.uuid) [-5:]})"
 
     def add_known_component(self, component: Component):
         self.components.append(component)
+
+    def add_received_metric(self, metric):
+        self.received_metrics.append(metric)
 
 
 # Constructs a graph of the network resources that this node knows about
@@ -56,7 +61,7 @@ class NetworkGraph:
     def __init__(self, name, own_addr, own_type, own_uuid, hardware):
         self._own_addr = own_addr
         self._own_uuid = own_uuid
-        self.new_node(name, own_addr, own_type, own_uuid, hardware)
+        self.new_node(name, None, own_addr, own_type, own_uuid, hardware)
 
     def set_server(self, server_uuid):
         if server_uuid not in self._nodes:
@@ -68,11 +73,11 @@ class NetworkGraph:
         return self.get_node(self._server)
 
     # Create new node and add it to the dict
-    def new_node(self, name, conn_handler: ConnectionHandler, node_type, node_uuid, hardware=None):
-        node = NetworkNode(name, conn_handler, node_uuid, node_type, hardware)
+    def new_node(self, name, conn_handler: ConnectionHandler, addr, node_type, node_uuid, hardware=None):
+        node = NetworkNode(name, conn_handler, addr, node_uuid, node_type, hardware)
         self._nodes[node.uuid] = node
         self._edges[node.uuid] = []
-        return node.uuid
+        return node
 
     # Create a new connection from this node to another
     def new_connection_to_self(self, other_uuid):
@@ -113,27 +118,31 @@ class NetworkGraph:
     def get_all_connections_to_node(self, node_uuid):
         if node_uuid not in self._nodes:
             logging.error(f"No node with uuid: {node_uuid}")
-            return
+            return []
         if node_uuid not in self._edges:
             return []
         return self._edges[node_uuid]
 
-    def get_all_connected_node_uuids_self(self):
-        return self.get_all_connected_node_uuids(self._own_uuid)
+    def get_all_connected_nodes_self(self, active_only=True):
+        return self.get_all_connected_nodes(self._own_uuid, active_only)
 
-    def get_all_connected_node_uuids(self, node_uuid):
+    def get_all_connected_nodes(self, node_uuid, active_only=True):
         if node_uuid not in self._nodes:
             logging.error(f"No node with uuid: {node_uuid}")
-            return
+            return []
         connections = self.get_all_connections_to_node(node_uuid)
 
-        def not_own_uuid_from_conn(conn: NetworkEdge):
+        def filter_nodes(conn: NetworkEdge):
+            n_uuid = conn.v1_uuid
             if conn.v1_uuid == node_uuid:
-                return conn.v2_uuid
-            return conn.v1_uuid
+                n_uuid = conn.v2_uuid
+            n = self.get_node(n_uuid)
+            if n.is_active or not active_only:
+                return n
+            return None
 
-        node_uuids = [not_own_uuid_from_conn(self.get_connection_by_conn_uuid(n)) for n in connections]
-        return node_uuids
+        nodes = [filter_nodes(self.get_connection_by_conn_uuid(n)) for n in connections]
+        return nodes
 
     def get_connection_by_conn_uuid(self, conn_uuid):
         if conn_uuid in self._connections:

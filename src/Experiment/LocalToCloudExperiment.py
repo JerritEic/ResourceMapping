@@ -2,21 +2,27 @@ import logging
 import time
 
 from src.Experiment.Experiment import Experiment
-from src.Experiment.Policy.CPUPolicy import CPUPolicy
+from src.Experiment.Policy.DebugPolicy import DebugPolicy
+from src.Experiment.Policy.Policy import DebugPolicyAction
 from src.NetProtocol.Message import Message
 from src.NetProtocol.Request import Request, RequestType
-from src.NetworkGraph.NetworkGraph import NetworkGraph, NetworkNode
+from src.NetworkGraph.NetworkGraph import NetworkGraph
 from src.app.Component import Component
 
 
 class LocalToCloudExperiment(Experiment):
     experiment_name = "LocalToCloud"
     sampling_frequency = 1
-    _local_client_uuid = None
-    _remote_client_uuid = None
+    local_node = None
+    remote_node = None
 
     def __init__(self):
-        self.policy = CPUPolicy()
+        # After x seconds, start the remote client
+        # wait for it be ready
+        # start local video stream
+        # stop local client component
+        actions = [dict(action=DebugPolicyAction(), time=20)]
+        self.policy = DebugPolicy(actions)
 
     # Perform local and remote component setup steps
     def setup(self, net_graph: NetworkGraph, message_handler):
@@ -25,7 +31,7 @@ class LocalToCloudExperiment(Experiment):
         # Check there are enough clients for experiment
         start_t = time.time()
         while True:
-            connected_nodes = self.net_graph.get_all_connected_node_uuids_self()
+            connected_nodes = self.net_graph.get_all_connected_nodes_self(active_only=True)
             if len(connected_nodes) >= 2:
                 break
             if time.time() - start_t > 20:
@@ -37,20 +43,41 @@ class LocalToCloudExperiment(Experiment):
         node_1 = self.net_graph.get_node(connected_nodes[0])
         node_2 = self.net_graph.get_node(connected_nodes[1])
         if node_1.hardware['num_cpu'] >= node_2.hardware['num_cpu']:
-            self._local_client_uuid = connected_nodes[1]
-            self._remote_client_uuid = connected_nodes[0]
+            self.local_node = connected_nodes[1]
+            self.remote_node = connected_nodes[0]
         else:
-            self._local_client_uuid = connected_nodes[0]
-            self._remote_client_uuid = connected_nodes[1]
-
-        if not self._start_game_clients(node_1, node_2):
+            self.local_node = connected_nodes[0]
+            self.remote_node = connected_nodes[1]
+        if not self._start_game_server():
+            return False
+        if not self._start_game_clients():
             return False
 
-    def _start_game_clients(self, node_1: NetworkNode, node_2: NetworkNode):
+    def _start_game_server(self):
+        comp_dict = dict(components=["game-server"], component_actions=['start'], pids=[-1])
+        message = Message(content=Request(RequestType.COMPONENT, comp_dict))
+        future1 = self.local_node.conn_handler.send_message_and_wait_response(message, yield_message=True)
+        start_t = time.time()
+        while True:
+            self.message_handler.read_messages()
+            if future1.is_set():
+                break
+            if time.time() - start_t > 30:
+                logging.error(f"Timeout on launching game clients!")
+                return False
+        resp_1 = future1.get_message().content.request
+        if resp_1['action'] != RequestType.COMPONENT:
+            logging.error(f"Failed to start game server component.")
+            return False
+        self.local_node.add_known_component(
+            Component(pid=resp_1['results'][0], name="game-server"))
+        return True
+
+    def _start_game_clients(self):
         comp_dict = dict(components=["game-client"], component_actions=['start'], pids=[-1])
         message = Message(content=Request(RequestType.COMPONENT, comp_dict))
-        future1 = node_1.conn_handler.send_message_and_wait_response(message, yield_message=True)
-        future2 = node_2.conn_handler.send_message_and_wait_response(message, yield_message=True)
+        future1 = self.local_node.conn_handler.send_message_and_wait_response(message, yield_message=True)
+        future2 = self.remote_node.conn_handler.send_message_and_wait_response(message, yield_message=True)
 
         start_t = time.time()
         while True:
@@ -65,23 +92,32 @@ class LocalToCloudExperiment(Experiment):
         if resp_1['action'] != RequestType.COMPONENT or resp_2['action'] != RequestType.COMPONENT:
             logging.error(f"Failed to start game client components.")
             return False
-        node_1.add_known_component(
-            Component(pid=resp_1['results'][0], associated_client_uuid=node_1.conn_handler.peer_uuid, name="game-client"))
-        node_2.add_known_component(
-            Component(pid=resp_2['results'][0], associated_client_uuid=node_2.conn_handler.peer_uuid, name="game-client"))
+        self.local_node.add_known_component(
+            Component(pid=resp_1['results'][0], name="game-client"))
+        self.remote_node.add_known_component(
+            Component(pid=resp_2['results'][0], name="game-client"))
         return True
 
     def _retrieve_metrics(self):
-        for n_uuid in self.net_graph.get_all_connected_node_uuids_self():
-            metric_dict = dict(metrics=["hardware_metrics"], period=self.sampling_frequency)
-            message = Message(content=Request(RequestType.METRIC, metric_dict))
-            self.net_graph.get_node(n_uuid).conn_handler.send_message(message)
+        metric_dict = dict(metrics=["hardware_metrics"], period=self.sampling_frequency)
+        message = Message(content=Request(RequestType.METRIC, metric_dict))
+        self.local_node.conn_handler.send_message(message)
+        self.remote_node.conn_handler.send_message(message)
 
     # One iteration of experiment loop
     def experiment_step(self):
         # check policy conditions
+        actions = self.policy.check([self.local_node, self.remote_node])
 
         # perform policy actions
+        for action in actions:
+            action.perform_action()
 
         # query clients for metrics
         self._retrieve_metrics()
+
+        # check stop conditions
+        if not self.local_node.is_active or not self.remote_node.is_active:
+            logging.info(f"Experiment peer is now inactive, stopping experiment.")
+            return False
+        return True
