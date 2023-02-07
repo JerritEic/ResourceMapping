@@ -25,19 +25,23 @@ class LocalToCloudExperiment(Experiment):
         self.policy = DebugPolicy(actions)
 
     # Perform local and remote component setup steps
-    def setup(self, net_graph: NetworkGraph, message_handler):
+    def setup(self, net_graph: NetworkGraph, message_handler, termination_event):
         self.net_graph = net_graph
         self.message_handler = message_handler
         # Check there are enough clients for experiment
         start_t = time.time()
-        while True:
-            connected_nodes = self.net_graph.get_all_connected_nodes_self(active_only=True)
-            if len(connected_nodes) >= 2:
-                break
-            if time.time() - start_t > 20:
-                logging.error(f"Not enough clients connected for experiment, quiting.")
-                return False
-            self.message_handler.read_messages()
+        try:
+            while not termination_event.is_set():
+                connected_nodes = self.net_graph.get_all_connected_nodes_self(active_only=True)
+                if len(connected_nodes) >= 2:
+                    break
+                if time.time() - start_t > 20:
+                    logging.error(f"Not enough clients connected for experiment, quiting.")
+                    return False
+                self.message_handler.read_messages()
+        except KeyboardInterrupt:
+            logging.info(f"Caught keyboard interrupt, exiting.")
+            return False
 
         # Choose node with less resources to be the starting local client
         node_1 = self.net_graph.get_node(connected_nodes[0])

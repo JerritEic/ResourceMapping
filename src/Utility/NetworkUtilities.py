@@ -21,7 +21,7 @@ def wait_for_connection(ip, port, num_retries, timeout):
         sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         sock.setblocking(False)
         sock.settimeout(timeout)
-        sock.connect_ex((ip, port))
+        sock.connect((ip, port))
         return sock
     except TimeoutError:
         logging.debug(f"timed out connecting to {ip}:{port}, retrying...")

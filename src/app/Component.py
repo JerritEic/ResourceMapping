@@ -99,3 +99,8 @@ class ComponentHandler:
         except OSError as error:
             logging.error(f"Popen failed for cmd {cmd} with error {error}")
         return None
+
+    def stop_components(self):
+        for component in self.components:
+            if component.process is not None:
+                component.process.kill()

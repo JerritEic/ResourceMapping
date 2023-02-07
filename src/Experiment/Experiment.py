@@ -9,9 +9,10 @@ class Experiment:
     net_graph = None
     message_handler = None
     sampling_frequency = -1
+    duration = -1
 
     # Perform local and remote component setup steps
-    def setup(self, net_graph, message_handler):
+    def setup(self, net_graph, message_handler, termination_event):
         self.net_graph = net_graph
         self.net_graph = message_handler
 
@@ -20,5 +21,9 @@ class Experiment:
 
     # One iteration of experiment loop
     def experiment_step(self):
+        pass
+
+    # Cleanup
+    def end(self):
         pass
 

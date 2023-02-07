@@ -15,6 +15,7 @@ from src.app.Component import Component
 class DebugExperiment(Experiment):
     experiment_name = "DebugExperiment"
     sampling_frequency = 1
+    duration = 60
 
     def __init__(self):
         # Behaviour of policy pre-defined here
@@ -23,26 +24,32 @@ class DebugExperiment(Experiment):
         self.node_1 = None
 
     # Perform local and remote component setup steps
-    def setup(self, net_graph: NetworkGraph, message_handler):
+    def setup(self, net_graph: NetworkGraph, message_handler, termination_event):
         self.net_graph = net_graph
         self.message_handler = message_handler
         # Check there are enough clients for experiment
         start_t = time.time()
-        while True:
-            connected_nodes = self.net_graph.get_all_connected_nodes_self(active_only=True)
-            if len(connected_nodes) >= 1:
-                break
-            if time.time() - start_t > 20:
-                logging.error(f"Not enough clients connected for experiment, quiting.")
-                return False
-            self.message_handler.read_messages()
-
-        self.node_1 = connected_nodes[0]
-        if not self._start_game_server():
+        try:
+            while True:
+                if termination_event.is_set():
+                    return False
+                connected_nodes = self.net_graph.get_all_connected_nodes_self(active_only=True)
+                if len(connected_nodes) >= 1:
+                    break
+                if time.time() - start_t > 20:
+                    logging.error(f"Not enough clients connected for experiment, quiting.")
+                    return False
+                self.message_handler.read_messages()
+        except KeyboardInterrupt:
+            logging.info(f"Caught keyboard interrupt, exiting.")
             return False
 
-        #if not self._start_game_clients():
+        self.node_1 = connected_nodes[0]
+        #if not self._start_game_server():
         #    return False
+
+        if not self._start_game_clients():
+            return False
         return True
 
     def _start_game_server(self):
@@ -54,7 +61,7 @@ class DebugExperiment(Experiment):
             self.message_handler.read_messages()
             if future1.is_set():
                 break
-            if time.time() - start_t > 30:
+            if time.time() - start_t > 10:
                 logging.error(f"Timeout on launching game clients!")
                 return False
         resp_1 = future1.get_message().content.request
@@ -108,3 +115,7 @@ class DebugExperiment(Experiment):
             logging.info(f"Experiment peer is now inactive, stopping experiment.")
             return False
         return True
+
+    def end(self):
+        message = Message(content=Request(RequestType.EXIT))
+        self.node_1.conn_handler.send_message(message)  # don't wait for a response

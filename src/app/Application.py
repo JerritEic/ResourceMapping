@@ -64,9 +64,10 @@ class Application:
         # uuid
         self.uuid = cached_or_new_uuid(config[self.p_name].getboolean('use_cached_uuid'),
                                        config[self.p_name]['uuid_cache'])
+        #logging.debug(f"getting ip...")
         # networking
-        ip = get_my_ip()
-        self.ip = ip
+        #ip = get_my_ip()
+        self.ip = "127.0.0.1"
         self.sel = selectors.DefaultSelector()
         self.receive_queue: "Queue[Message]" = Queue()
         # Setup network representation class
@@ -82,6 +83,7 @@ class Application:
         self.component_handler = ComponentHandler(self, config['DEFAULT']['components_file'])
         self.component_handler.add_component(c)
         self.elapsed_time = 0
+        logging.debug(f"Setup complete")
 
     def _initialize_sqlite_db(self):
         if not exists(self._database_template):
@@ -120,7 +122,7 @@ class Application:
         self.sel.register(s, selectors.EVENT_READ | selectors.EVENT_WRITE, data=None)
         # Main connection thread, reads recv of each connection into a message queue
         self.connection_monitor.start()
-        if not self.experiment.setup(self.net_graph, self.message_handler):
+        if not self.experiment.setup(self.net_graph, self.message_handler, self.termination_event):
             logging.error(f"Experiment setup failed, aborting.")
             self.halt()
             return
@@ -159,6 +161,7 @@ class Application:
             if time.time() - start_t > 10:
                 logging.error(f"Timeout on handshake, aborting.")
                 self.halt()
+                return
         # After handshake established, make sure new node is marked as server
         self.net_graph.set_server(conn_handler.peer.uuid)
 
@@ -186,6 +189,9 @@ class Application:
                 self.message_handler.read_messages()
                 # check elapsed time
                 t = time.time()
+                # If experiment duration is elapsed, stop
+                if (t - start_t) > self.experiment.duration:
+                    break
                 if (t - last_t) > sample_period:
                     last_t = t
                     self.elapsed_time = (t - start_t)
@@ -209,10 +215,14 @@ class Application:
         self.db.commit()
 
     def halt(self):
+        if self.experiment is not None:
+            self.experiment.end()
         if self.termination_event is not None:
             self.termination_event.set()
+        if self.component_handler is not None:
+            self.component_handler.stop_components()
         if self.connection_monitor is not None:
-            self.connection_monitor.join()
+            self.connection_monitor.join(timeout=1)
         if self.db is not None:
             self.db.close()
         if not self._persist_db:

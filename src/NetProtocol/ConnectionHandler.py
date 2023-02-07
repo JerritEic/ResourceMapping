@@ -12,8 +12,6 @@ from src.Utility.NetworkUtilities import json_decode
 from src.NetProtocol.Message import Message
 
 
-CSEQ_MAX = 65535
-
 # Required headers in the JSON header
 REQUIRED_HEADERS = [
     "byteorder",
@@ -203,28 +201,28 @@ class ConnectionHandler(Thread):
 
     # enqueue a request, return CSeq
     def send_message(self, message: Message, is_response=False):
-        logging.debug(f"Enqueued: {message.content.request['action']} to {self.addr}")
         message.conn_handler = self
         message.is_received = False
         # Don't change the CSeq if we are responding to a message
         if not is_response:
-            self.CSeq = (self.CSeq + 1) % CSEQ_MAX
+            self.CSeq += 1
             message.CSeq = self.CSeq
+        logging.debug(f"Enqueued{' response' if is_response else ''}: {message.content.request['action']} to {self.addr} with CSeq {message.CSeq}")
         #self._set_selector_events_mask('rw')
         self._send_queue.put(message.get_serialized())
 
     # enqueue a request, returns a future to wait for a response. If yield_message is true, the message handler will
     # pass the message through this event rather than handle it itself
     def send_message_and_wait_response(self, message: Message, is_response=False, yield_message=False) -> MessageEvent:
-        logging.debug(f"Enqueued: {message.content.request['action']} to {self.addr}")
         message.conn_handler = self
         message.is_received = False
         # Don't change the CSeq if we are responding to a message
         if not is_response:
-            self.CSeq = (self.CSeq + 1) % CSEQ_MAX
+            self.CSeq += 1
             message.CSeq = self.CSeq
         #self._set_selector_events_mask('rw')
         # Add the wait event before sending
+        logging.debug(f"Enqueued{' response' if is_response else ''}: {message.content.request['action']} to {self.addr} with wait on CSeq {message.CSeq}")
         message_event = self._add_new_await(message.CSeq, yield_message)
         self._send_queue.put(message.get_serialized())
         return message_event
