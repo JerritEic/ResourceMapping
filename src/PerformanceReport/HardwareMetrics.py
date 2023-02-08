@@ -30,17 +30,16 @@ class HardwareMetrics(Metric):
                               cpu=cpu_global, memory=mem_global)]
         for comp in self.components:
             try:
-                if psutil.pid_exists(comp.pid):
-                    p = psutil.Process(comp.pid)
-                    # can be > 100.0 in case of a process running multiple threads on different CPU cores.
-                    cpu = p.cpu_percent(interval=None)
-                    # RSS is platform portable, but not the best measure of memory usage
-                    mem = p.memory_info().rss
-                    results_dicts.append(dict(timestamp=self.elapsed_time, pid=comp.pid,
-                                              cpu=cpu, memory=mem))
-            except NoSuchProcess:
-                logging.error(f"PID {comp.pid} is not an active process...")
-            except AccessDenied:
-                logging.error(f"PID {comp.pid} access denied")
+                # if we didnt spawn this process then add a psutil wrapper to it
+                if comp.proc is None:
+                    comp.proc = psutil.Process(pid=comp.pid)
+                # otherwise we already have one
+                cpu = comp.proc.cpu_percent(interval=None)
+                # RSS is platform portable, but not the best measure of memory usage
+                mem = comp.proc.memory_info().rss
+                results_dicts.append(dict(timestamp=self.elapsed_time, pid=comp.pid,
+                                          cpu=cpu, memory=mem))
+            except Exception as e:
+                logging.error(f"PID {comp.pid} hw measuring gave error {e}")
         # result to dict, could also be dataframe
         self.result = results_dicts

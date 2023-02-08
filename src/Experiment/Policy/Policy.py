@@ -78,11 +78,11 @@ class WaitForResponses(PolicyAction):
 class DebugPolicyAction(PolicyAction):
     name = "DebugPolicyAction"
 
-    def __init__(self, to_print=""):
+    def __init__(self, to_print=None):
         self.to_print = to_print
 
     def perform_action(self, action_input=None):
-        if action_input is not None:
+        if action_input is not None or self.to_print is not None:
             logging.info(f"DebugPolicyAction - {self.to_print} - {action_input}")
 
 

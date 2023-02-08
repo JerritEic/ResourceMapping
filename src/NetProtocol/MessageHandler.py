@@ -1,7 +1,9 @@
 import logging
 import threading
+import time
 from uuid import UUID
 
+from src.NetProtocol.AwaitResponse import MessageEvent
 from src.NetProtocol.Message import Message
 from queue import Queue
 
@@ -35,6 +37,7 @@ class MessageHandler:
 
         # If this message is a response being waited on, notify. If yield message is true, return to let the event
         # listener handle it.
+        logging.debug(f"Await list on {item.conn_handler.addr} is {item.conn_handler.await_list}")
         if response and item.CSeq in item.conn_handler.await_list:
             yield_message = item.conn_handler.await_list[item.CSeq].yield_message
             if yield_message:
@@ -54,6 +57,21 @@ class MessageHandler:
             self._handle_component(item)
         elif action == RequestType.EXIT:
             self._handle_exit(item)
+
+    # Given list of MessageEvents, wait for all of their associated responses to arrive.
+    def wait_for_responses(self, message_events: list[MessageEvent], timeout: int) -> bool:
+        start_t = time.time()
+        not_ready = True
+        while not_ready:
+            self.read_messages()
+            if time.time() - start_t > timeout or self.termination_event.is_set():
+                return False
+            not_ready = False
+            for m in message_events:
+                if not m.is_set():
+                    not_ready = True
+                    break
+        return True
 
     def _handle_handshake(self, item: Message):
         content = item.content.request
@@ -97,26 +115,36 @@ class MessageHandler:
 
     def _handle_component(self, item: Message):
         content = item.content.request
-        logging.debug(f"Received component request: {content['components']} from {item.conn_handler.addr}")
+        comp_name = content['components'][0]
+        logging.debug(f"Received component request with CSeq {item.CSeq} for {comp_name} from {item.conn_handler.addr}")
         if not content['response']:
-            if content['component_actions'][0] == "start":
-                # start the requested components, reply with status
-                pid = self.owner.component_handler.start_component(content['components'][0])
-                if pid == -1:
-                    # Could not start the process, reply with an error
-                    err_dict = dict(error=f"Could not start process {content['components'][0]}")
-                    item.content = Request(RequestType.ERROR, err_dict)
-                    item.conn_handler.send_message(item, is_response=True)
+            component_actions = content['component_actions'][0]
+            # ensure it is a list
+            component_actions = [component_actions] if not isinstance(component_actions, list) else component_actions
+            component_action_responses = []
+            for i, component_action in enumerate(component_actions):
+                try:
+                    args = content['args'][i] if 'args' in content else dict()
+                except IndexError:
+                    args = dict()
+                if component_action == "start":
+                    # start the requested components, reply with pid
+                    pid = self.owner.component_handler.start_component(comp_name, args)
+                    component_action_responses.append(pid)
+                elif component_action == "ready":
+                    res = self.owner.component_handler.ready_component(comp_name, args)
+                    component_action_responses.append(res)
                 else:
-                    content['response'] = True
-                    content['results'] = [pid]
-                    item.content = Request(RequestType.COMPONENT, content)
-                    item.conn_handler.send_message(item, is_response=True)
+                    component_action_responses.append("UNSUPPORTED")
+            content['response'] = True
+            content['results'] = component_action_responses
+            item.content = Request(RequestType.COMPONENT, content)
+            item.conn_handler.send_message(item, is_response=True)
         else:
             # handle a received component response
             # currently handled by where a component request was sent.
-            pass
+            logging.error(f"Message handler received an un-awaited component response, dropping it...")
 
     def _handle_exit(self, item: Message):
         logging.debug(f"Received exit request from {item.conn_handler.addr}")
-        self.termination_event.set()
+        item.conn_handler.close()

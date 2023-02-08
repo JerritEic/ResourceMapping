@@ -56,14 +56,10 @@ class DebugExperiment(Experiment):
         comp_dict = dict(components=["game-server"], component_actions=['start'], pids=[-1])
         message = Message(content=Request(RequestType.COMPONENT, comp_dict))
         future1 = self.node_1.conn_handler.send_message_and_wait_response(message, yield_message=True)
-        start_t = time.time()
-        while True:
-            self.message_handler.read_messages()
-            if future1.is_set():
-                break
-            if time.time() - start_t > 10:
-                logging.error(f"Timeout on launching game clients!")
-                return False
+
+        if not self.message_handler.wait_for_responses([future1], 30):
+            logging.error(f"Timeout on launching game server!")
+
         resp_1 = future1.get_message().content.request
         if resp_1['action'] != RequestType.COMPONENT:
             logging.error(f"Failed to start game server component.")
@@ -77,14 +73,9 @@ class DebugExperiment(Experiment):
         message = Message(content=Request(RequestType.COMPONENT, comp_dict))
         future1 = self.node_1.conn_handler.send_message_and_wait_response(message, yield_message=True)
 
-        start_t = time.time()
-        while True:
-            self.message_handler.read_messages()
-            if future1.is_set():
-                break
-            if time.time() - start_t > 50:
-                logging.error(f"Timeout on launching game clients!")
-                return False
+        if not self.message_handler.wait_for_responses([future1], 30):
+            logging.error(f"Timeout on launching game client!")
+
         resp_1 = future1.get_message().content.request
         if resp_1['action'] != RequestType.COMPONENT:
             logging.error(f"Failed to start game client components.")

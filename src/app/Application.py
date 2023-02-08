@@ -31,10 +31,11 @@ class Application:
     connection_monitor = None
     component_metric_handlers: [MetricCollector] = []
     # By default, database
-    _default_metric_collection_mode = MetricCollectionMode.TO_DB + MetricCollectionMode.TO_STDOUT
+    _default_metric_collection_mode = MetricCollectionMode.TO_DB
     _db_file = None
 
     def __init__(self, config, is_server):
+        self.config = config
         self.is_server = is_server
         self.p_name = "ResourceServer" if self.is_server else "ResourceClient"
         # experiment
@@ -78,9 +79,9 @@ class Application:
         self.connection_monitor = ConnectionMonitor(self.termination_event, self.sel, self.receive_queue)
         self.message_handler = MessageHandler(self.receive_queue, self.termination_event, owner=self)
 
-        # Fill in initial component (which is this application)
-        c = Component(os.getpid(), name=self.p_name)
+        # Fill in initial components (which is this application)
         self.component_handler = ComponentHandler(self, config['DEFAULT']['components_file'])
+        c = Component(os.getpid(), name=self.p_name)
         self.component_handler.add_component(c)
         self.elapsed_time = 0
         logging.debug(f"Setup complete")
@@ -127,6 +128,7 @@ class Application:
             self.halt()
             return
         self._exec_loop()
+        self.experiment.end()
         self.halt()
 
     def _start_client(self):
@@ -189,14 +191,13 @@ class Application:
                 self.message_handler.read_messages()
                 # check elapsed time
                 t = time.time()
-                # If experiment duration is elapsed, stop
-                if (t - start_t) > self.experiment.duration:
-                    break
                 if (t - last_t) > sample_period:
                     last_t = t
                     self.elapsed_time = (t - start_t)
 
                     if self.is_server:
+                        if (t - start_t) > self.experiment.duration:
+                            break
                         if not self.experiment.experiment_step():
                             break
                     else:

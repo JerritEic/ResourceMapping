@@ -53,6 +53,7 @@ class ConnectionMonitor(Thread):
         except KeyboardInterrupt:
             logging.info("Caught keyboard interrupt, exiting.")
         finally:
+            logging.debug(f"Connection handler stopped.")
             self.selector.close()
             self.termination_event.set()
 
@@ -85,7 +86,7 @@ class ConnectionHandler(Thread):
         self._receive_queue = receive_queue
         # each message handler gets own send queue
         self._send_queue = queue.Queue()
-
+        # CSeq -> Event dict, events are set when the CSeq we are awaiting arrives
         self.await_list = dict()
 
     def process_events(self, mask):
@@ -125,6 +126,7 @@ class ConnectionHandler(Thread):
             if data:
                 self._recv_buffer += data
             else:
+                # Empty message interpreted as socket closed
                 logging.info(f"Peer at {self.addr} closed.")
                 self.close()
 
@@ -206,6 +208,7 @@ class ConnectionHandler(Thread):
         # Don't change the CSeq if we are responding to a message
         if not is_response:
             self.CSeq += 1
+            logging.debug(f"CSeq for {self.addr} is now {self.CSeq}")
             message.CSeq = self.CSeq
         logging.debug(f"Enqueued{' response' if is_response else ''}: {message.content.request['action']} to {self.addr} with CSeq {message.CSeq}")
         #self._set_selector_events_mask('rw')
@@ -219,12 +222,14 @@ class ConnectionHandler(Thread):
         # Don't change the CSeq if we are responding to a message
         if not is_response:
             self.CSeq += 1
+            logging.debug(f"CSeq for {self.addr} is now {self.CSeq}")
             message.CSeq = self.CSeq
         #self._set_selector_events_mask('rw')
         # Add the wait event before sending
         logging.debug(f"Enqueued{' response' if is_response else ''}: {message.content.request['action']} to {self.addr} with wait on CSeq {message.CSeq}")
         message_event = self._add_new_await(message.CSeq, yield_message)
-        self._send_queue.put(message.get_serialized())
+        # Force a reserialize, fixes an edge case where we wait on a message with wrong CSeq sent
+        self._send_queue.put(message.get_serialized(force_reserialize=True))
         return message_event
 
     # Add a new CSeq await to the list of waiting event objects

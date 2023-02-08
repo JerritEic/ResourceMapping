@@ -22,6 +22,8 @@ class Request:
         if content is not None:
             self.request = content
             return
+        if args is None:
+            args = dict()
         args['action'] = action
         if 'response' not in args:
             args['response'] = False
@@ -59,13 +61,13 @@ class Request:
         self.request = args
 
     def _construct_component_request(self, args):
-        req_fields = ['components', 'component_actions', 'results']
-        if 'results' not in args:
-            args['results'] = [-1]
+        req_fields = ['components', 'component_actions']
         for req_field in req_fields:
             if req_field not in args:
                 logging.error(f"Component request missing {req_field}")
                 return
+        if 'results' not in args:
+            args['results'] = [-1 for _ in args['component_actions']]
         self.request = args
 
     def _construct_exit_request(self, args):

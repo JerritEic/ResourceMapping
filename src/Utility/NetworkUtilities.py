@@ -9,7 +9,7 @@ from os.path import exists
 def get_my_ip():
     hostname = socket.getfqdn()
     ip = socket.gethostbyname_ex(hostname)
-    return ip
+    return ip[2][-1]
 
 
 def wait_for_connection(ip, port, num_retries, timeout):
