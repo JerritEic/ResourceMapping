@@ -31,12 +31,12 @@ class HardwareMetrics(Metric):
         for comp in self.components:
             try:
                 # if we didnt spawn this process then add a psutil wrapper to it
-                if comp.proc is None:
-                    comp.proc = psutil.Process(pid=comp.pid)
+                if comp.process is None:
+                    comp.process = psutil.Process(pid=comp.pid)
                 # otherwise we already have one
-                cpu = comp.proc.cpu_percent(interval=None)
+                cpu = comp.process.cpu_percent(interval=None)
                 # RSS is platform portable, but not the best measure of memory usage
-                mem = comp.proc.memory_info().rss
+                mem = comp.process.memory_info().rss
                 results_dicts.append(dict(timestamp=self.elapsed_time, pid=comp.pid,
                                           cpu=cpu, memory=mem))
             except Exception as e:

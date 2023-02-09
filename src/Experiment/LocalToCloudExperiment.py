@@ -21,8 +21,6 @@ class LocalToCloudExperiment(Experiment):
     _mc_server_port = 25575
 
     def __init__(self):
-        # After x seconds, start the remote client
-        # wait for it be ready
         # start local video stream
         # stop local client component
         actions = [dict(action=DebugPolicyAction(), time=20)]
@@ -57,16 +55,42 @@ class LocalToCloudExperiment(Experiment):
         else:
             self.local_node = connected_nodes[0]
             self.remote_node = connected_nodes[1]
+        if not self._pair_streaming():
+            return False
         if not self._start_game_server():
             return False
         if not self._start_game_clients():
             return False
         return True
 
+    def _pair_streaming(self):
+        server_ip = self.remote_node.conn_handler.addr[0]
+        server_ip = server_ip if server_ip != "127.0.0.1" else get_my_ip()
+        pin = "2048"
+        comp_dict = dict(components=["stream-server"], component_actions=['pair'],
+                         args=[dict(pin=pin)])
+        message = Message(content=Request(RequestType.COMPONENT, comp_dict))
+        future2 = self.remote_node.conn_handler.send_message_and_wait_response(message, yield_message=True)
+        time.sleep(1)
+        comp_dict = dict(components=["stream-client"], component_actions=['pair'],
+                         args=[dict(remote_ip=server_ip, pin=pin)])
+        message = Message(content=Request(RequestType.COMPONENT, comp_dict))
+        future1 = self.local_node.conn_handler.send_message_and_wait_response(message, yield_message=True)
+
+        if not self.message_handler.wait_for_responses([future1, future2], 60):
+            logging.error(f"Timeout on pairing the game stream server and client!")
+            return False
+
+        resp_1 = future1.get_message().content.request['results']
+        resp_2 = future2.get_message().content.request['results']
+        if resp_1[0] != "PAIRED" or resp_2[0] != "PAIRED":
+            logging.error(f"Failed to pair the game stream server and client!")
+            return False
+        return True
+
     def _start_game_server(self):
         comp_dict = dict(components=["game-server"], component_actions=[['start', 'ready']],
-                         args=[[dict(server_port=self._mc_server_port), dict(server_port=self._mc_server_port)]],
-                         pids=[-1])
+                         args=[[dict(server_port=self._mc_server_port), dict(server_port=self._mc_server_port)]])
         message = Message(content=Request(RequestType.COMPONENT, comp_dict))
         future1 = self.remote_node.conn_handler.send_message_and_wait_response(message, yield_message=True)
 
@@ -87,8 +111,7 @@ class LocalToCloudExperiment(Experiment):
         server_ip = server_ip if server_ip != "127.0.0.1" else get_my_ip()
         comp_dict = dict(components=["game-client"], component_actions=['start'],
                          args=[dict(server_ip=server_ip,
-                                    server_port=self._mc_server_port)],
-                         results=[-1])
+                                    server_port=self._mc_server_port)])
         message = Message(content=Request(RequestType.COMPONENT, comp_dict))
         future1 = self.local_node.conn_handler.send_message_and_wait_response(message, yield_message=True)
         future2 = self.remote_node.conn_handler.send_message_and_wait_response(message, yield_message=True)
@@ -99,7 +122,7 @@ class LocalToCloudExperiment(Experiment):
 
         resp_1 = future1.get_message().content.request['results']
         resp_2 = future2.get_message().content.request['results']
-        if resp_1[0] == -1 or resp_1[1] == -1:
+        if resp_1[0] == -1 or resp_2[0] == -1:
             logging.error(f"Failed to start game client components.")
             return False
         self.local_node.add_known_component(

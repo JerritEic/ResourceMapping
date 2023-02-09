@@ -132,7 +132,12 @@ class MessageHandler:
                     pid = self.owner.component_handler.start_component(comp_name, args)
                     component_action_responses.append(pid)
                 elif component_action == "ready":
+                    # check if the component is ready to be used
                     res = self.owner.component_handler.ready_component(comp_name, args)
+                    component_action_responses.append(res)
+                elif component_action == "pair":
+                    # pair a component to communicate with another component
+                    res = self.owner.component_handler.pair_component(comp_name, args)
                     component_action_responses.append(res)
                 else:
                     component_action_responses.append("UNSUPPORTED")
