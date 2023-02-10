@@ -38,15 +38,21 @@ class ComponentHandler:
         self.owner.db.commit()
         self.components.append(component)
 
+    def _get_component_by_name(self, component_name):
+        for component in self.components:
+            if component.name == component_name:
+                return component
+        return None
+
     # Check if a component is ready for use
-    def ready_component(self, component_name, args: dict):
+    def status_component(self, component_name, args: dict):
         if component_name not in self.COMPONENT_CONFIG:
             logging.error(f"Unrecognized component: {component_name}")
             return "UNSUPPORTED"
-        if 'ready' not in self.COMPONENT_CONFIG[component_name]:
-            logging.error(f"Unsupported command: 'ready' for component {component_name}")
+        if 'status' not in self.COMPONENT_CONFIG[component_name]:
+            logging.error(f"Unsupported command: 'status' for component {component_name}")
             return "UNSUPPORTED"
-        cmd = self.COMPONENT_CONFIG[component_name]['ready']
+        cmd = self.COMPONENT_CONFIG[component_name]['status']
         if cmd in special_commands:
             return special_commands[cmd](args)
         else:
@@ -70,6 +76,27 @@ class ComponentHandler:
         else:
             return -1
 
+    def _start_component_command(self, cmd, args, cwd, name):
+        # Check if there is a special command for starting this component
+        stdout = None
+        if cmd in special_commands:
+            cmd, cwd, stdout = special_commands[cmd](cwd, args)
+        else:
+            # Fix to make sure we find a relative path to executable
+            cmd = f"{cwd}{cmd}"
+        try:
+            logging.debug(f"Executing {cmd}")
+            if stdout is None:
+                stdout = open(f"./logs/{self.owner.p_name}_{str(self.owner.uuid)[-5:]}_{name}_out.txt", 'w')
+            proc = psutil.Popen(cmd, cwd=cwd, stdin=subprocess.PIPE, stdout=stdout, stderr=subprocess.STDOUT)
+            if proc.poll() is not None:
+                logging.error(f"subprocess {cmd} terminated early with {proc.returncode}")
+                return None
+            return proc
+        except OSError as error:
+            logging.error(f"Popen failed for cmd {cmd} with error {error}")
+        return None
+
     # Pair a component to another. May launch a process temporarily but closes it after
     def pair_component(self, component_name, args: dict):
         if component_name not in self.COMPONENT_CONFIG:
@@ -86,23 +113,11 @@ class ComponentHandler:
             # TODO By default check if the process is running
             return "PAIRED"
 
-    def _start_component_command(self, cmd, args, cwd, name):
-        # Check if there is a special command for starting this component
-        stdout = None
-        if cmd in special_commands:
-            cmd, cwd, stdout = special_commands[cmd](cwd, args)
-        try:
-            logging.debug(f"Executing {cmd} in dir {cwd}")
-            if stdout is None:
-                stdout = open(f"./logs/{self.owner.p_name}_{str(self.owner.uuid)[-5:]}_{name}_out.txt", 'w')
-            proc = psutil.Popen(cmd, cwd=cwd, stdin=subprocess.PIPE, stdout=stdout, stderr=subprocess.STDOUT)
-            if proc.poll() is not None:
-                logging.error(f"subprocess {cmd} terminated early with {proc.returncode}")
-                return None
-            return proc
-        except OSError as error:
-            logging.error(f"Popen failed for cmd {cmd} with error {error}")
-        return None
+    def stop_component(self, component_name, args: dict):
+        comp = self._get_component_by_name(component_name)
+        if comp is not None and comp.process is not None:
+            comp.process.kill()
+            comp.is_active = False
 
     # make sure that no matter what we kill all the spawned processes.
     def stop_components(self):

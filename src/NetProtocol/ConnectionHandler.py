@@ -60,10 +60,10 @@ class ConnectionMonitor(Thread):
     # Handle a new connection
     def _accept_wrapper(self, sock: socket):
         conn, addr = sock.accept()
-        logging.info(f"Accepted connection from {addr}")
+        logging.info(f"Accepted connection from {conn.getpeername()}")
         conn.setblocking(False)
-        conn_handler = ConnectionHandler(self.selector, conn, addr,
-                                         self.connection_number, receive_queue=self.receive_queue)
+        conn_handler = ConnectionHandler(selector=self.selector, sock=conn, addr=conn.getpeername(),
+                                         num=self.connection_number, receive_queue=self.receive_queue)
         self.connection_number += 1
         self.selector.register(conn, selectors.EVENT_READ | selectors.EVENT_WRITE, data=conn_handler)
 
@@ -99,7 +99,7 @@ class ConnectionHandler(Thread):
         self._read()
 
         if self._current_recv_message is None:
-            logging.debug(f"started receiving new message")
+            #logging.debug(f"started receiving new message")
             self._current_recv_message = Message(handler=self)
 
         # could take multiple _read to process single message, so keep track of headers
@@ -156,6 +156,7 @@ class ConnectionHandler(Thread):
                 if sent and not self._send_buffer:
                     # buffer is drained. The response has been sent.
                     logging.debug(f"Message has been sent")
+
 
     # Process the fixed length header (2 byte, big endian), gives length of following JSON header
     def _process_protoheader(self):
@@ -237,7 +238,7 @@ class ConnectionHandler(Thread):
         if CSeq in self.await_list:
             logging.error(f"Already waiting for a response to this message...")
         event = MessageEvent(yield_message)
-        logging.debug(f"Adding await for CSeq {CSeq}")
+        #logging.debug(f"Adding await for CSeq {CSeq}")
         self.await_list[CSeq] = event
         return event
 

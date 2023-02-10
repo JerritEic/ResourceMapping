@@ -37,14 +37,14 @@ class MessageHandler:
 
         # If this message is a response being waited on, notify. If yield message is true, return to let the event
         # listener handle it.
-        logging.debug(f"Await list on {item.conn_handler.addr} is {item.conn_handler.await_list}")
+        #logging.debug(f"Await list on {item.conn_handler.addr} is {item.conn_handler.await_list}")
         if response and item.CSeq in item.conn_handler.await_list:
             yield_message = item.conn_handler.await_list[item.CSeq].yield_message
             if yield_message:
                 item.conn_handler.await_list[item.CSeq].set_message(item)
             item.conn_handler.await_list[item.CSeq].set()
             # Remove this CSeq from the await dict
-            logging.debug(f"Removing await for CSeq {item.CSeq}")
+            #logging.debug(f"Removing await for CSeq {item.CSeq}")
             item.conn_handler.await_list.pop(item.CSeq)
             if yield_message:
                 return
@@ -131,14 +131,16 @@ class MessageHandler:
                     # start the requested components, reply with pid
                     pid = self.owner.component_handler.start_component(comp_name, args)
                     component_action_responses.append(pid)
-                elif component_action == "ready":
+                elif component_action == "status":
                     # check if the component is ready to be used
-                    res = self.owner.component_handler.ready_component(comp_name, args)
+                    res = self.owner.component_handler.status_component(comp_name, args)
                     component_action_responses.append(res)
                 elif component_action == "pair":
                     # pair a component to communicate with another component
                     res = self.owner.component_handler.pair_component(comp_name, args)
                     component_action_responses.append(res)
+                elif component_action == "stop":
+                    self.owner.component_handler.stop_component(comp_name, args)
                 else:
                     component_action_responses.append("UNSUPPORTED")
             content['response'] = True

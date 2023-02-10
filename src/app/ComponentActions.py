@@ -65,7 +65,7 @@ def special_pair_moonlight_client(cwd, args):
 def special_start_moonlight_client_cmd(cwd, args) -> (list[str], str, int):
     remote_ip = "localhost" if 'remote_ip' not in args else args['remote_ip']
     cmd = [f"{cwd}Moonlight.exe", "stream", remote_ip, "desktop"]
-    return cmd, "./", subprocess.DEVNULL
+    return cmd, cwd, subprocess.DEVNULL
 
 
 def special_pair_sunshine_server(cwd, args):
@@ -103,16 +103,30 @@ def special_start_sunshine_server_cmd(cwd, args) -> (list[str], str, int):
     return cmd, "./", subprocess.DEVNULL
 
 
-def special_ready_mc_server(args):
-    port = 25575 if "server_port" not in args else int(args["server_port"])
-    server = JavaServer("localhost", port)
-    try:
-        status = server.status()
-        logging.debug(f"Received from server: {status.latency} ms with {status.players.max}")
-    except ConnectionRefusedError:
-        logging.error(f"Server refused connection.")
-        return "UNREADY"
-    return "READY"
+def special_status_mc_server(args):
+    server_port = 25576 if "server_port" not in args else int(args["server_port"])
+    players_connected = 0 if "players_connected" not in args else int(args["players_connected"])
+    server = JavaServer("localhost", server_port, timeout=5)
+    num_retry = 0
+    while num_retry < 3:
+        try:
+            status = server.status()
+            logging.debug(f"Received from server: {status.latency} ms with {status.players.online} players")
+            player_status_retries = 0
+            while status.players.online < players_connected:
+                if player_status_retries > 30:
+                    logging.debug(f"Not enough players connected!")
+                    return "UNREADY"
+                time.sleep(2)
+                status = server.status()
+                player_status_retries += 1
+            return "READY"
+
+        except ConnectionRefusedError:
+            logging.error(f"Server refused connection, retry {num_retry}")
+            time.sleep(0.5)
+            num_retry += 1
+    return "UNREADY"
 
 
 # Special component commands, these can be specified in a component.ini file
@@ -123,5 +137,5 @@ special_commands = dict(
     SPECIAL_START_MOONLIGHT_CLIENT=special_start_moonlight_client_cmd,
     SPECIAL_START_SUNSHINE_SERVER=special_start_sunshine_server_cmd,
     SPECIAL_PAIR_SUNSHINE_SERVER=special_pair_sunshine_server,
-    SPECIAL_READY_MC_SERVER=special_ready_mc_server
+    SPECIAL_STATUS_MC_SERVER=special_status_mc_server
 )

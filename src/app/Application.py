@@ -127,6 +127,7 @@ class Application:
             logging.error(f"Experiment setup failed, aborting.")
             self.halt()
             return
+        logging.info(f"Experiment setup complete!")
         self._exec_loop()
         self.experiment.end()
         self.halt()

@@ -29,6 +29,8 @@ class HardwareMetrics(Metric):
         results_dicts = [dict(timestamp=self.elapsed_time, pid=-1,
                               cpu=cpu_global, memory=mem_global)]
         for comp in self.components:
+            if not comp.is_active:
+                continue
             try:
                 # if we didnt spawn this process then add a psutil wrapper to it
                 if comp.process is None:

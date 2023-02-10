@@ -3,7 +3,7 @@ import time
 
 from src.Experiment.Experiment import Experiment
 from src.Experiment.Policy.DebugPolicy import DebugPolicy
-from src.Experiment.Policy.Policy import DebugPolicyAction
+from src.Experiment.Policy.Policy import DebugPolicyAction, StartComponentAction, StopComponentAction
 from src.NetProtocol.Message import Message
 from src.NetProtocol.Request import Request, RequestType
 from src.NetworkGraph.NetworkGraph import NetworkGraph
@@ -18,13 +18,8 @@ class LocalToCloudExperiment(Experiment):
     local_node = None
     remote_node = None
     is_server = False
-    _mc_server_port = 25575
-
-    def __init__(self):
-        # start local video stream
-        # stop local client component
-        actions = [dict(action=DebugPolicyAction(), time=20)]
-        self.policy = DebugPolicy(actions)
+    _mc_server_port = 25576
+    server_ip = None
 
     # Perform local and remote component setup steps
     def setup(self, net_graph: NetworkGraph, message_handler, termination_event):
@@ -48,24 +43,46 @@ class LocalToCloudExperiment(Experiment):
             logging.info(f"Caught keyboard interrupt, exiting.")
             return False
 
-        # Choose node with less resources to be the starting local client
-        if connected_nodes[0].hardware['num_cpu'] >= connected_nodes[1].hardware['num_cpu']:
+        # Choose node with to be the starting local client
+        if connected_nodes[0].hardware['num_cpu'] <= connected_nodes[1].hardware['num_cpu']:
             self.local_node = connected_nodes[1]
             self.remote_node = connected_nodes[0]
         else:
             self.local_node = connected_nodes[0]
             self.remote_node = connected_nodes[1]
-        if not self._pair_streaming():
-            return False
+
+        self.server_ip = self.remote_node.conn_handler.addr[0]
+        self.server_ip = self.server_ip if self.server_ip != "127.0.0.1" else get_my_ip()
+
+        # TODO Pairing still buggy, but only needs to be done once between any two nodes...
+        #if not self._pair_streaming():
+        #    return False
+        # start game server on local
         if not self._start_game_server():
             return False
         if not self._start_game_clients():
             return False
+
+
+        # Setup the policy, in this case hardcoded
+        comp_dict1 = dict(components=["stream-server"], component_actions=['start'])
+        message1 = Message(content=Request(RequestType.COMPONENT, comp_dict1))
+
+        comp_dict2 = dict(components=["stream-client"], component_actions=['start'],
+                         args=[dict(remote_ip=self.remote_node.conn_handler.addr[0])])
+        message2 = Message(content=Request(RequestType.COMPONENT, comp_dict2))
+
+        comp_dict3 = dict(components=["game-client"], component_actions=['stop'])
+        message3 = Message(content=Request(RequestType.COMPONENT, comp_dict3))
+
+        actions = [dict(action=StartComponentAction(message1, self.remote_node, self.message_handler), time=20),
+                   dict(action=StartComponentAction(message2, self.local_node, self.message_handler), time=25),
+                   dict(action=StopComponentAction(message3, self.local_node), time=40)]
+        self.policy = DebugPolicy(actions)
+
         return True
 
     def _pair_streaming(self):
-        server_ip = self.remote_node.conn_handler.addr[0]
-        server_ip = server_ip if server_ip != "127.0.0.1" else get_my_ip()
         pin = "2048"
         comp_dict = dict(components=["stream-server"], component_actions=['pair'],
                          args=[dict(pin=pin)])
@@ -73,7 +90,7 @@ class LocalToCloudExperiment(Experiment):
         future2 = self.remote_node.conn_handler.send_message_and_wait_response(message, yield_message=True)
         time.sleep(1)
         comp_dict = dict(components=["stream-client"], component_actions=['pair'],
-                         args=[dict(remote_ip=server_ip, pin=pin)])
+                         args=[dict(remote_ip=self.server_ip, pin=pin)])
         message = Message(content=Request(RequestType.COMPONENT, comp_dict))
         future1 = self.local_node.conn_handler.send_message_and_wait_response(message, yield_message=True)
 
@@ -89,10 +106,10 @@ class LocalToCloudExperiment(Experiment):
         return True
 
     def _start_game_server(self):
-        comp_dict = dict(components=["game-server"], component_actions=[['start', 'ready']],
+        comp_dict = dict(components=["game-server"], component_actions=[['start', 'status']],
                          args=[[dict(server_port=self._mc_server_port), dict(server_port=self._mc_server_port)]])
         message = Message(content=Request(RequestType.COMPONENT, comp_dict))
-        future1 = self.remote_node.conn_handler.send_message_and_wait_response(message, yield_message=True)
+        future1 = self.local_node.conn_handler.send_message_and_wait_response(message, yield_message=True)
 
         if not self.message_handler.wait_for_responses([future1], 30):
             logging.error(f"Timeout on launching game server!")
@@ -102,12 +119,12 @@ class LocalToCloudExperiment(Experiment):
         if resp_1[0] == -1 or resp_1[1] != "READY":
             logging.error(f"Failed to start game server component.")
             return False
-        self.remote_node.add_known_component(
+        self.local_node.add_known_component(
             Component(pid=resp_1[0], name="game-server"))
         return True
 
     def _start_game_clients(self):
-        server_ip = self.remote_node.conn_handler.addr[0]
+        server_ip = self.local_node.conn_handler.addr[0]
         server_ip = server_ip if server_ip != "127.0.0.1" else get_my_ip()
         comp_dict = dict(components=["game-client"], component_actions=['start'],
                          args=[dict(server_ip=server_ip,
@@ -129,6 +146,18 @@ class LocalToCloudExperiment(Experiment):
             Component(pid=resp_1[0], name="game-client"))
         self.remote_node.add_known_component(
             Component(pid=resp_2[0], name="game-client"))
+
+        # Wait for the clients to connect to the server
+        comp_dict = dict(components=["game-server"], component_actions=['status'],
+                         args=[dict(server_port=self._mc_server_port, players_connected=2)])
+        message = Message(content=Request(RequestType.COMPONENT, comp_dict))
+        future3 = self.local_node.conn_handler.send_message_and_wait_response(message, yield_message=True)
+
+        # Player launching and connecting can be extremely slow.
+        if not self.message_handler.wait_for_responses([future3], 180):
+            logging.error(f"Timeout on clients connecting to server!")
+            return False
+        logging.info(f"Players have connected to the server.")
         return True
 
     def _retrieve_metrics(self):
@@ -144,10 +173,11 @@ class LocalToCloudExperiment(Experiment):
 
         # perform policy actions
         for action in actions:
-            action.perform_action()
+            if not action.perform_action():
+                logging.error(f"{action.name} failed!")
 
         # query clients for metrics
-        self._retrieve_metrics()
+        # self._retrieve_metrics()
 
         # check stop conditions
         if not self.local_node.is_active or not self.remote_node.is_active:
